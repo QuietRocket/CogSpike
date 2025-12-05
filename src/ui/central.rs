@@ -1,6 +1,14 @@
 use std::time::Duration;
 
-use crate::app::{Mode, SimTab, TemplateApp};
+use crate::{
+    app::{Mode, SimTab, TemplateApp},
+    snn::graph::{NodeId, NodeKind, SnnGraph},
+};
+
+const GRID_SPACING: f32 = 32.0;
+const NODE_RADIUS: f32 = 18.0;
+const NODE_DIAMETER: f32 = NODE_RADIUS * 2.0;
+const EDGE_DEFAULT_WEIGHT: f32 = 1.0;
 
 pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     match app.mode {
@@ -13,92 +21,65 @@ pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Contex
 fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label("Palette:");
-        if ui.button("Neuron").clicked() {
-            app.push_log("Add neuron (placeholder)");
+        for (label, kind) in [
+            ("Neuron", NodeKind::Neuron),
+            ("Population", NodeKind::Population),
+            ("Input", NodeKind::Input),
+            ("Output", NodeKind::Output),
+        ] {
+            if ui.button(label).clicked() {
+                app.design.pending_node_kind = Some(kind);
+                app.push_log(format!("Click the canvas to place a {}", kind.label()));
+            }
         }
-        if ui.button("Population").clicked() {
-            app.push_log("Add population (placeholder)");
+
+        ui.separator();
+
+        if ui.button("Delete selected").clicked() {
+            if let Some(node_id) = app.design.selected_node.take() {
+                app.design.graph.remove_node(node_id);
+                app.design.connecting_from = None;
+                app.push_log(format!("Deleted node {}", node_id.0));
+            }
         }
-        if ui.button("Input").clicked() {
-            app.push_log("Add input (placeholder)");
-        }
-        if ui.button("Output").clicked() {
-            app.push_log("Add output (placeholder)");
+        if ui.button("Cancel connect").clicked() {
+            app.design.connecting_from = None;
         }
     });
+    ui.label(&app.design.canvas_note);
     ui.separator();
 
     let available = ui.available_size();
-    let (rect, response) = ui.allocate_at_least(available, egui::Sense::click_and_drag());
+    let (rect, response) = ui.allocate_at_least(available, egui::Sense::click());
     let painter = ui.painter_at(rect);
-
     painter.rect_stroke(
         rect,
         8.0,
         egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
         egui::StrokeKind::Outside,
     );
-    painter.text(
-        rect.center_top() + egui::vec2(0.0, 12.0),
-        egui::Align2::CENTER_TOP,
-        "Graph canvas placeholder",
-        egui::FontId::proportional(16.0),
-        egui::Color32::LIGHT_GRAY,
-    );
 
     if app.design.show_grid {
-        draw_grid(&painter, rect, 32.0);
+        draw_grid(&painter, rect, GRID_SPACING);
     }
 
-    // Simple mock nodes and edges
-    let node_positions = [
-        rect.left_top() + egui::vec2(80.0, 80.0),
-        rect.left_top() + egui::vec2(210.0, 160.0),
-        rect.left_top() + egui::vec2(360.0, 120.0),
-        rect.left_top() + egui::vec2(500.0, 220.0),
-    ];
-    painter.line_segment(
-        [node_positions[0], node_positions[1]],
-        egui::Stroke::new(2.0, egui::Color32::LIGHT_BLUE),
-    );
-    painter.line_segment(
-        [node_positions[1], node_positions[2]],
-        egui::Stroke::new(2.0, egui::Color32::LIGHT_GREEN),
-    );
-    painter.line_segment(
-        [node_positions[2], node_positions[3]],
-        egui::Stroke::new(2.0, egui::Color32::LIGHT_RED),
-    );
+    let pointer_pos = response.interact_pointer_pos();
+    handle_canvas_clicks(app, rect, &response);
+    handle_keyboard_shortcuts(app, ui);
 
-    for (idx, pos) in node_positions.iter().enumerate() {
-        let color = match idx {
-            0 => egui::Color32::from_rgb(120, 180, 255),
-            1 => egui::Color32::from_rgb(180, 255, 120),
-            2 => egui::Color32::from_rgb(255, 180, 120),
-            _ => egui::Color32::from_rgb(200, 200, 255),
-        };
-        painter.circle_filled(*pos, 18.0, color);
-        painter.text(
-            *pos + egui::vec2(0.0, 24.0),
-            egui::Align2::CENTER_TOP,
-            format!("Node {}", idx + 1),
-            egui::FontId::proportional(13.0),
-            egui::Color32::WHITE,
+    {
+        let graph = &app.design.graph;
+        draw_edges(
+            graph,
+            &painter,
+            rect,
+            app.design.selected_node,
+            app.design.connecting_from,
+            pointer_pos,
         );
     }
 
-    if response.clicked() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            app.record_canvas_interaction(pos);
-            app.push_log(format!("Canvas clicked at ({:.1}, {:.1})", pos.x, pos.y));
-        }
-    }
-
-    if response.dragged() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            app.record_canvas_interaction(pos);
-        }
-    }
+    draw_nodes(app, ui, &painter, rect);
 }
 
 fn draw_grid(painter: &egui::Painter, rect: egui::Rect, spacing: f32) {
@@ -120,6 +101,220 @@ fn draw_grid(painter: &egui::Painter, rect: egui::Rect, spacing: f32) {
         );
         y += spacing;
     }
+}
+
+fn handle_canvas_clicks(app: &mut TemplateApp, rect: egui::Rect, response: &egui::Response) {
+    if let Some(pos) = response.interact_pointer_pos() {
+        if response.double_clicked() {
+            let kind = app
+                .design
+                .pending_node_kind
+                .take()
+                .unwrap_or(NodeKind::Neuron);
+            add_node_at(app, rect, pos, kind);
+        } else if response.clicked() {
+            if let Some(kind) = app.design.pending_node_kind.take() {
+                add_node_at(app, rect, pos, kind);
+            } else {
+                app.design.selected_node = None;
+                app.design.connecting_from = None;
+            }
+            app.record_canvas_interaction(pos);
+        }
+    }
+}
+
+fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui) {
+    let delete =
+        ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
+    if delete {
+        if let Some(node_id) = app.design.selected_node.take() {
+            app.design.graph.remove_node(node_id);
+            app.design.connecting_from = None;
+            app.push_log(format!("Deleted node {}", node_id.0));
+        }
+    }
+
+    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if escape {
+        app.design.connecting_from = None;
+    }
+}
+
+fn draw_edges(
+    graph: &SnnGraph,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    selected: Option<NodeId>,
+    connecting_from: Option<NodeId>,
+    pointer_pos: Option<egui::Pos2>,
+) {
+    for edge in &graph.edges {
+        let Some(from_pos) = graph.position_of(edge.from) else {
+            continue;
+        };
+        let Some(to_pos) = graph.position_of(edge.to) else {
+            continue;
+        };
+        let from_screen = graph_to_screen(rect, from_pos);
+        let to_screen = graph_to_screen(rect, to_pos);
+
+        let mut color = egui::Color32::from_gray(180);
+        if selected == Some(edge.from) || selected == Some(edge.to) {
+            color = egui::Color32::WHITE;
+        }
+        painter.line_segment([from_screen, to_screen], egui::Stroke::new(2.0, color));
+        let label_pos = from_screen.lerp(to_screen, 0.5);
+        painter.text(
+            label_pos,
+            egui::Align2::CENTER_CENTER,
+            format!("{:+.2}", edge.weight),
+            egui::FontId::proportional(12.0),
+            egui::Color32::LIGHT_GRAY,
+        );
+    }
+
+    if let (Some(from), Some(pointer)) = (connecting_from, pointer_pos) {
+        if let Some(start) = graph.position_of(from) {
+            let start = graph_to_screen(rect, start);
+            painter.line_segment(
+                [start, pointer],
+                egui::Stroke::new(1.5, egui::Color32::LIGHT_BLUE),
+            );
+        }
+    }
+}
+
+fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter, rect: egui::Rect) {
+    let shift_down = ui.input(|i| i.modifiers.shift);
+    let pointer_delta = ui.input(|i| i.pointer.delta());
+    let node_ids: Vec<NodeId> = app.design.graph.nodes.iter().map(|n| n.id).collect();
+
+    for node_id in node_ids {
+        let Some(node_snapshot) = app.design.graph.node(node_id).cloned() else {
+            continue;
+        };
+
+        let pos = graph_to_screen(rect, node_snapshot.position);
+        let node_rect = egui::Rect::from_center_size(pos, egui::vec2(NODE_DIAMETER, NODE_DIAMETER));
+        let response = ui.interact(
+            node_rect,
+            ui.id().with(("node", node_id.0)),
+            egui::Sense::click_and_drag(),
+        );
+
+        if response.drag_started() {
+            app.design.drag_anchor = Some((node_id, node_snapshot.position));
+        }
+        if let Some((anchor_id, _)) = app.design.drag_anchor {
+            if anchor_id == node_id && response.dragged() {
+                if let Some(node) = app.design.graph.node_mut(node_id) {
+                    node.position[0] += pointer_delta.x;
+                    node.position[1] += pointer_delta.y;
+                }
+            }
+        }
+        if let Some((anchor_id, _)) = app.design.drag_anchor {
+            let pointer_down = ui.input(|i| i.pointer.primary_down());
+            if anchor_id == node_id && !pointer_down {
+                if let Some(node) = app.design.graph.node_mut(node_id) {
+                    if app.design.snap_to_grid {
+                        node.position = snap_to_grid(node.position, GRID_SPACING);
+                    }
+                }
+                app.design.drag_anchor = None;
+            }
+        }
+
+        if response.clicked() {
+            if shift_down {
+                match app.design.connecting_from {
+                    Some(from) if from != node_id => {
+                        if app
+                            .design
+                            .graph
+                            .add_edge(from, node_id, EDGE_DEFAULT_WEIGHT)
+                            .is_some()
+                        {
+                            app.push_log(format!("Connected {} -> {}", from.0, node_id.0));
+                        } else {
+                            app.push_log("Connection already exists or invalid");
+                        }
+                        app.design.connecting_from = None;
+                    }
+                    _ => {
+                        app.design.connecting_from = Some(node_id);
+                    }
+                }
+                app.design.selected_node = Some(node_id);
+            } else {
+                app.design.selected_node = Some(node_id);
+                app.design.connecting_from = None;
+            }
+            if let Some(pos) = response.interact_pointer_pos() {
+                app.record_canvas_interaction(pos);
+            }
+        }
+
+        let fill = node_color(node_snapshot.kind);
+        painter.circle_filled(pos, NODE_RADIUS, fill);
+        if app.design.selected_node == Some(node_id) || app.design.connecting_from == Some(node_id)
+        {
+            painter.circle_stroke(
+                pos,
+                NODE_RADIUS + 3.0,
+                egui::Stroke::new(2.0, egui::Color32::WHITE),
+            );
+        }
+        painter.text(
+            pos + egui::vec2(0.0, NODE_RADIUS + 6.0),
+            egui::Align2::CENTER_TOP,
+            node_snapshot.label,
+            egui::FontId::proportional(13.0),
+            egui::Color32::WHITE,
+        );
+    }
+}
+
+fn node_color(kind: NodeKind) -> egui::Color32 {
+    match kind {
+        NodeKind::Neuron => egui::Color32::from_rgb(120, 180, 255),
+        NodeKind::Population => egui::Color32::from_rgb(180, 255, 120),
+        NodeKind::Input => egui::Color32::from_rgb(255, 200, 120),
+        NodeKind::Output => egui::Color32::from_rgb(200, 200, 255),
+    }
+}
+
+fn snap_to_grid(pos: [f32; 2], spacing: f32) -> [f32; 2] {
+    [
+        (pos[0] / spacing).round() * spacing,
+        (pos[1] / spacing).round() * spacing,
+    ]
+}
+
+fn graph_to_screen(rect: egui::Rect, position: [f32; 2]) -> egui::Pos2 {
+    rect.left_top() + egui::vec2(position[0], position[1])
+}
+
+fn add_node_at(app: &mut TemplateApp, rect: egui::Rect, pos: egui::Pos2, kind: NodeKind) {
+    let mut graph_pos = screen_to_graph(rect, pos);
+    if app.design.snap_to_grid {
+        graph_pos = snap_to_grid(graph_pos, GRID_SPACING);
+    }
+    let label = format!("{} {}", kind.label(), app.design.graph.nodes.len() + 1);
+    let id = app.design.graph.add_node(label, kind, graph_pos);
+    app.design.selected_node = Some(id);
+    app.push_log(format!(
+        "Added {} at ({:.1}, {:.1})",
+        kind.label(),
+        graph_pos[0],
+        graph_pos[1]
+    ));
+}
+
+fn screen_to_graph(rect: egui::Rect, pos: egui::Pos2) -> [f32; 2] {
+    let local = pos - rect.left_top();
+    [local.x, local.y]
 }
 
 fn simulate_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {

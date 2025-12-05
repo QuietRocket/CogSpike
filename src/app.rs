@@ -1,4 +1,7 @@
-use crate::ui::{central, inspector_panel, log_panel, project_explorer, top_bar};
+use crate::{
+    snn::graph::{NodeId, NodeKind, SnnGraph},
+    ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
+};
 
 /// The shallow, UI-first application state. No business logic or backend calls yet.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -68,12 +71,36 @@ impl Default for BackendChoice {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Default)]
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 pub struct DesignState {
     pub(crate) show_grid: bool,
     pub(crate) snap_to_grid: bool,
     pub(crate) canvas_note: String,
     pub(crate) last_interaction: Option<[f32; 2]>,
+    pub(crate) graph: SnnGraph,
+    pub(crate) selected_node: Option<NodeId>,
+    pub(crate) connecting_from: Option<NodeId>,
+    #[serde(skip)]
+    pub(crate) pending_node_kind: Option<NodeKind>,
+    #[serde(skip)]
+    pub(crate) drag_anchor: Option<(NodeId, [f32; 2])>,
+}
+
+impl Default for DesignState {
+    fn default() -> Self {
+        Self {
+            show_grid: true,
+            snap_to_grid: true,
+            canvas_note: "Double-click to add neurons; Shift-click to connect".to_owned(),
+            last_interaction: None,
+            graph: SnnGraph::demo_layout(),
+            selected_node: None,
+            connecting_from: None,
+            pending_node_kind: None,
+            drag_anchor: None,
+        }
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Copy, PartialEq, Eq)]
@@ -198,12 +225,7 @@ impl Default for TemplateApp {
             backend: BackendChoice::default(),
             selection: Selection::default(),
             demo: DemoProject::default(),
-            design: DesignState {
-                show_grid: true,
-                snap_to_grid: true,
-                canvas_note: "Double-click to add nodes; drag to pan".to_owned(),
-                last_interaction: None,
-            },
+            design: DesignState::default(),
             simulate: SimulateState::default(),
             verify: VerifyState::default(),
             log_messages: vec![

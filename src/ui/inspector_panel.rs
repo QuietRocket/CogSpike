@@ -30,6 +30,88 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
     } else {
         ui.label("No canvas interaction yet");
     }
+
+    if let Some(node_id) = app.design.selected_node {
+        ui.separator();
+        ui.heading("Selected node");
+        if let Some(node) = app.design.graph.node_mut(node_id) {
+            ui.label(format!("ID {}", node_id.0));
+            ui.horizontal(|ui| {
+                ui.label("Label");
+                ui.text_edit_singleline(&mut node.label);
+            });
+            ui.label(format!("Kind: {}", node.kind.label()));
+
+            ui.collapsing("Neuron parameters", |ui| {
+                egui::Grid::new("neuron_params_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("P_rth");
+                        ui.add(egui::DragValue::new(&mut node.params.p_rth).speed(0.05));
+                        ui.end_row();
+                        ui.label("P_rest");
+                        ui.add(egui::DragValue::new(&mut node.params.p_rest).speed(0.05));
+                        ui.end_row();
+                        ui.label("P_reset");
+                        ui.add(egui::DragValue::new(&mut node.params.p_reset).speed(0.05));
+                        ui.end_row();
+                        ui.label("Leak r");
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.leak_r)
+                                .speed(0.01)
+                                .range(0.0..=1.0),
+                        );
+                        ui.end_row();
+                        ui.label("ARP");
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.arp)
+                                .speed(1.0)
+                                .range(0..=256),
+                        );
+                        ui.end_row();
+                        ui.label("RRP");
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.rrp)
+                                .speed(1.0)
+                                .range(0..=256),
+                        );
+                        ui.end_row();
+                        ui.label("alpha");
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.alpha)
+                                .speed(0.01)
+                                .range(0.0..=1.0),
+                        );
+                        ui.end_row();
+                        ui.label("dt");
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.dt)
+                                .speed(0.01)
+                                .range(0.001..=10.0),
+                        );
+                        ui.end_row();
+                    });
+            });
+
+            ui.collapsing("Thresholds (fraction of P_rth)", |ui| {
+                egui::Grid::new("thresholds_grid")
+                    .num_columns(4)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for (idx, threshold) in node.params.thresholds.iter_mut().enumerate() {
+                            ui.label(format!("th{}", idx + 1));
+                            ui.add(egui::DragValue::new(threshold).speed(0.01).range(0.0..=1.2));
+                            if idx % 2 == 1 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        } else {
+            app.design.selected_node = None;
+            ui.label("Selected node no longer exists");
+        }
+    }
 }
 
 fn simulate_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
