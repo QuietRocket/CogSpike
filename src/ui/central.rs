@@ -9,6 +9,10 @@ const GRID_SPACING: f32 = 32.0;
 const NODE_RADIUS: f32 = 18.0;
 const NODE_DIAMETER: f32 = NODE_RADIUS * 2.0;
 const EDGE_DEFAULT_WEIGHT: f32 = 1.0;
+const ARROW_HEAD_LENGTH: f32 = 10.0;
+const ARROW_HEAD_WIDTH: f32 = 8.0;
+const SELECT_HALO_ALPHA: u8 = 70;
+const SELECT_STROKE_COLOR: egui::Color32 = egui::Color32::from_rgb(0, 140, 255);
 
 pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     match app.mode {
@@ -83,7 +87,7 @@ fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
 }
 
 fn draw_grid(painter: &egui::Painter, rect: egui::Rect, spacing: f32) {
-    let color = egui::Color32::from_gray(40);
+    let color = egui::Color32::from_rgba_unmultiplied(220, 220, 220, 80);
     let stroke = egui::Stroke::new(1.0, color);
     let mut x = rect.left();
     while x < rect.right() {
@@ -159,18 +163,18 @@ fn draw_edges(
         let from_screen = graph_to_screen(rect, from_pos);
         let to_screen = graph_to_screen(rect, to_pos);
 
-        let mut color = egui::Color32::from_gray(180);
+        let mut color = egui::Color32::from_gray(60);
         if selected == Some(edge.from) || selected == Some(edge.to) {
-            color = egui::Color32::WHITE;
+            color = egui::Color32::from_rgb(20, 120, 200);
         }
-        painter.line_segment([from_screen, to_screen], egui::Stroke::new(2.0, color));
+        draw_directed_edge(painter, from_screen, to_screen, color);
         let label_pos = from_screen.lerp(to_screen, 0.5);
         painter.text(
             label_pos,
             egui::Align2::CENTER_CENTER,
             format!("{:+.2}", edge.weight),
             egui::FontId::proportional(12.0),
-            egui::Color32::LIGHT_GRAY,
+            egui::Color32::from_gray(30),
         );
     }
 
@@ -183,6 +187,37 @@ fn draw_edges(
             );
         }
     }
+}
+
+fn draw_directed_edge(
+    painter: &egui::Painter,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    color: egui::Color32,
+) {
+    let dir = to - from;
+    let len = dir.length();
+    if len < f32::EPSILON {
+        return;
+    }
+    let unit = dir / len;
+
+    let arrow_tip = to - unit * NODE_RADIUS;
+    let arrow_base = arrow_tip - unit * ARROW_HEAD_LENGTH;
+    let shaft_start = from + unit * NODE_RADIUS;
+    let shaft_end = arrow_base;
+
+    painter.line_segment([shaft_start, shaft_end], egui::Stroke::new(2.0, color));
+
+    let perp = egui::vec2(-unit.y, unit.x);
+    let half_width = ARROW_HEAD_WIDTH * 0.5;
+    let left = arrow_base + perp * half_width;
+    let right = arrow_base - perp * half_width;
+    painter.add(egui::Shape::convex_polygon(
+        vec![arrow_tip, left, right],
+        color,
+        egui::Stroke::NONE,
+    ));
 }
 
 fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter, rect: egui::Rect) {
@@ -260,10 +295,15 @@ fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter,
         painter.circle_filled(pos, NODE_RADIUS, fill);
         if app.design.selected_node == Some(node_id) || app.design.connecting_from == Some(node_id)
         {
+            painter.circle_filled(
+                pos,
+                NODE_RADIUS + 6.0,
+                egui::Color32::from_rgba_unmultiplied(0, 140, 255, SELECT_HALO_ALPHA),
+            );
             painter.circle_stroke(
                 pos,
                 NODE_RADIUS + 3.0,
-                egui::Stroke::new(2.0, egui::Color32::WHITE),
+                egui::Stroke::new(2.5, SELECT_STROKE_COLOR),
             );
         }
         painter.text(
@@ -271,7 +311,7 @@ fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter,
             egui::Align2::CENTER_TOP,
             node_snapshot.label,
             egui::FontId::proportional(13.0),
-            egui::Color32::WHITE,
+            egui::Color32::from_gray(30),
         );
     }
 }
