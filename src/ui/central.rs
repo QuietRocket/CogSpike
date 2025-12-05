@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    app::{Mode, SimTab, TemplateApp},
+    app::{Mode, SimTab, TemplateApp, DEMO_PRISM_MODEL},
     snn::graph::{NodeId, NodeKind, SnnGraph},
 };
 
@@ -18,7 +18,7 @@ pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Contex
     match app.mode {
         Mode::Design => design_view(app, ui),
         Mode::Simulate => simulate_view(app, ui, ctx),
-        Mode::Verify => verify_view(app, ui),
+        Mode::Verify => verify_view(app, ui, ctx),
     }
 }
 
@@ -461,7 +461,12 @@ fn placeholder_plot(ui: &mut egui::Ui, label: &str) {
     );
 }
 
-fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
+fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    app.poll_model_checker();
+    if app.verify.job.is_some() {
+        ctx.request_repaint_after(Duration::from_millis(100));
+    }
+
     ui.horizontal(|ui| {
         ui.label("Property set:");
         ui.strong(
@@ -471,11 +476,40 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
                 .unwrap_or("Select a property"),
         );
         ui.separator();
-        if ui.button("Run checker").clicked() {
-            app.push_log("Model checking requested (placeholder)");
+        let run_enabled = app.verify.property_enabled && app.verify.job.is_none();
+        if ui
+            .add_enabled(run_enabled, egui::Button::new("Run checker"))
+            .clicked()
+        {
+            if let Err(err) = app.start_model_check() {
+                app.verify.last_error = Some(err.clone());
+                app.push_log(format!("Unable to start model check: {err}"));
+            }
         }
-        if ui.button("Batch run").clicked() {
-            app.push_log("Batch verification (placeholder)");
+        if ui
+            .add_enabled(app.verify.job.is_none(), egui::Button::new("Reset result"))
+            .clicked()
+        {
+            app.verify.last_result = None;
+            app.verify.last_error = None;
+        }
+    });
+    ui.separator();
+
+    ui.horizontal(|ui| {
+        ui.label("Status:");
+        if let Some(job) = app.verify.job.as_ref() {
+            ui.spinner();
+            ui.label(format!("Running… {:.1?}", job.started_at.elapsed()));
+        } else if let Some(err) = &app.verify.last_error {
+            ui.colored_label(
+                egui::Color32::from_rgb(180, 50, 50),
+                format!("Error: {err}"),
+            );
+        } else if let Some(results) = &app.verify.last_result {
+            ui.label(format!("Completed ({} result{})", results.len(), if results.len() == 1 { "" } else { "s" }));
+        } else {
+            ui.label("Idle");
         }
     });
     ui.separator();
@@ -499,8 +533,31 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
         columns[1].checkbox(&mut app.verify.show_model_text, "Show model text");
         if app.verify.show_model_text {
             columns[1].add_space(4.0);
-            columns[1].label("PRISM model preview (placeholder)");
-            columns[1].monospace("module snn_model\n  // generated content\nendmodule");
+            columns[1].label("PRISM model preview");
+            columns[1].monospace(DEMO_PRISM_MODEL);
+        }
+
+        columns[1].separator();
+        columns[1].label("Results");
+        columns[1].add_space(4.0);
+        if let Some(results) = &app.verify.last_result {
+            for (idx, res) in results.iter().enumerate() {
+                columns[1].group(|ui| {
+                    ui.strong(format!("Property {} status: {}", idx + 1, res.status));
+                    ui.label(format!("Formula: {}", res.formula));
+                    if let Some(prob) = res.probability {
+                        ui.label(format!("Probability: {:.6}", prob));
+                    }
+                    ui.collapsing("Raw output", |ui| {
+                        ui.monospace(res.raw_output.trim());
+                    });
+                });
+            }
+        } else if let Some(err) = &app.verify.last_error {
+            columns[1].colored_label(egui::Color32::from_rgb(180, 50, 50), err);
+            columns[1].label("Try adjusting the PRISM path or formula and rerun.");
+        } else {
+            columns[1].label("No verification runs yet.");
         }
     });
 }

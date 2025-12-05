@@ -1,9 +1,31 @@
 use crate::{
+    model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
     snn::graph::{NodeId, NodeKind, SnnGraph},
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+};
 
-/// The shallow, UI-first application state. No business logic or backend calls yet.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::model_checker::LocalPrism;
+
+pub(crate) const DEMO_PRISM_MODEL: &str = r#"
+dtmc
+
+module simple
+    s : [0..2] init 0;
+    [] s=0 -> 0.5 : (s'=1) + 0.5 : (s'=2);
+    [] s=1 -> (s'=1);
+    [] s=2 -> (s'=2);
+endmodule
+
+label "goal_state" = s=1;
+label "error_state" = s=2;
+"#;
+
+/// The shallow, UI-first application state with a basic PRISM integration stub.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct TemplateApp {
@@ -14,6 +36,8 @@ pub struct TemplateApp {
     pub(crate) design: DesignState,
     pub(crate) simulate: SimulateState,
     pub(crate) verify: VerifyState,
+    #[serde(skip)]
+    pub(crate) model_checker: Option<Arc<dyn ModelChecker>>,
     pub(crate) log_messages: Vec<String>,
     pub(crate) follow_logs: bool,
     pub(crate) log_window_open: bool,
@@ -66,7 +90,7 @@ impl Default for BackendChoice {
         Self {
             available: vec!["CPU".to_owned(), "GPU".to_owned(), "PRISM CLI".to_owned()],
             active: 0,
-            prism_path: "/usr/bin/prism".to_owned(),
+            prism_path: default_prism_path(),
         }
     }
 }
@@ -170,15 +194,24 @@ pub struct VerifyState {
     pub(crate) description: String,
     pub(crate) show_model_text: bool,
     pub(crate) property_enabled: bool,
+    #[serde(skip)]
+    pub(crate) job: Option<CheckerJob>,
+    #[serde(skip)]
+    pub(crate) last_result: Option<PrismResponse>,
+    #[serde(skip)]
+    pub(crate) last_error: Option<String>,
 }
 
 impl Default for VerifyState {
     fn default() -> Self {
         Self {
-            current_formula: "P>=0.95 [ F<=100 error_state ]".to_owned(),
+            current_formula: "P>=0.95 [ F<=100 \"error_state\" ]".to_owned(),
             description: "Goal reached with high probability within 100 ms".to_owned(),
             show_model_text: false,
             property_enabled: true,
+            job: None,
+            last_result: None,
+            last_error: None,
         }
     }
 }
@@ -189,6 +222,13 @@ pub struct DemoProject {
     pub(crate) simulations: Vec<String>,
     pub(crate) properties: Vec<String>,
     pub(crate) runs: Vec<String>,
+}
+
+fn default_prism_path() -> String {
+    if let Ok(path) = std::env::var("PRISM_PATH") {
+        return path;
+    }
+    "prism".to_owned()
 }
 
 impl Default for DemoProject {
@@ -220,14 +260,17 @@ impl Default for DemoProject {
 
 impl Default for TemplateApp {
     fn default() -> Self {
+        let backend = BackendChoice::default();
+        let model_checker = Self::build_model_checker(&backend.prism_path);
         Self {
             mode: Mode::Design,
-            backend: BackendChoice::default(),
+            backend,
             selection: Selection::default(),
             demo: DemoProject::default(),
             design: DesignState::default(),
             simulate: SimulateState::default(),
             verify: VerifyState::default(),
+            model_checker,
             log_messages: vec![
                 "Welcome to CogSpike.".to_owned(),
                 "Tip: switch modes with the top toolbar.".to_owned(),
@@ -244,10 +287,25 @@ impl TemplateApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
-            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+            let mut app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            if app.model_checker.is_none() {
+                let prism_path = app.backend.prism_path.clone();
+                app.model_checker = Self::build_model_checker(&prism_path);
+            }
+            app
         } else {
             Default::default()
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build_model_checker(prism_path: &str) -> Option<Arc<dyn ModelChecker>> {
+        Some(Arc::new(LocalPrism::new(prism_path)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn build_model_checker(_prism_path: &str) -> Option<Arc<dyn ModelChecker>> {
+        None
     }
 
     pub(crate) fn backend_label(&self) -> &str {
@@ -264,6 +322,76 @@ impl TemplateApp {
 
     pub(crate) fn record_canvas_interaction(&mut self, pos: egui::Pos2) {
         self.design.last_interaction = Some([pos.x, pos.y]);
+    }
+
+    fn prism_request_from_state(&self) -> PrismRequest {
+        let mut formula = self.verify.current_formula.clone();
+        for label in ["error_state", "goal_state"] {
+            let quoted = format!("\"{label}\"");
+            if !formula.contains(&quoted) && formula.contains(label) {
+                formula = formula.replace(label, &quoted);
+            }
+        }
+
+        PrismRequest {
+            model: DEMO_PRISM_MODEL.to_owned(),
+            properties: vec![formula],
+            options: PrismOptions::default(),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn start_model_check(&mut self) -> Result<(), String> {
+        Err("Model checking is unavailable on the web build".to_owned())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn start_model_check(&mut self) -> Result<(), String> {
+        if self.verify.job.is_some() {
+            return Err("Model checker already running".to_owned());
+        }
+
+        self.model_checker = Some(Arc::new(LocalPrism::new(&self.backend.prism_path)));
+
+        let Some(checker) = self.model_checker.clone() else {
+            return Err("No model checker backend is configured".to_owned());
+        };
+
+        let request = self.prism_request_from_state();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = checker.check(request);
+            let _ = tx.send(result);
+        });
+        self.verify.job = Some(CheckerJob::new(rx));
+        self.verify.last_error = None;
+        self.verify.last_result = None;
+        self.push_log("Started PRISM model check");
+        Ok(())
+    }
+
+    pub(crate) fn poll_model_checker(&mut self) {
+        let Some(job) = self.verify.job.as_ref() else {
+            return;
+        };
+
+        if let Some(result) = job.try_recv() {
+            let elapsed = job.started_at.elapsed();
+            self.verify.job = None;
+
+            match result {
+                Ok(response) => {
+                    self.verify.last_result = Some(response);
+                    self.verify.last_error = None;
+                    self.push_log(format!("PRISM finished in {:.1?}", elapsed));
+                }
+                Err(err) => {
+                    self.verify.last_result = None;
+                    self.verify.last_error = Some(err.to_string());
+                    self.push_log(format!("PRISM failed after {:.1?}: {err}", elapsed));
+                }
+            }
+        }
     }
 }
 
