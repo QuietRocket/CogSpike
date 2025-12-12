@@ -1,6 +1,9 @@
 use crate::{
     model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
-    snn::graph::{NodeId, NodeKind, SnnGraph},
+    snn::{
+        graph::{NodeId, NodeKind, SnnGraph},
+        prism_gen::{generate_prism_model, PrismGenConfig},
+    },
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
 use std::{
@@ -194,6 +197,10 @@ pub struct VerifyState {
     pub(crate) description: String,
     pub(crate) show_model_text: bool,
     pub(crate) property_enabled: bool,
+    /// If true, generate PRISM model from the design graph; otherwise use demo model.
+    pub(crate) use_generated_model: bool,
+    #[serde(skip)]
+    pub(crate) generated_model_cache: Option<String>,
     #[serde(skip)]
     pub(crate) job: Option<CheckerJob>,
     #[serde(skip)]
@@ -205,10 +212,12 @@ pub struct VerifyState {
 impl Default for VerifyState {
     fn default() -> Self {
         Self {
-            current_formula: "P>=0.95 [ F<=100 \"error_state\" ]".to_owned(),
-            description: "Goal reached with high probability within 100 ms".to_owned(),
+            current_formula: "P=? [ F \"output_spike\" ]".to_owned(),
+            description: "Probability that output neuron spikes".to_owned(),
             show_model_text: false,
             property_enabled: true,
+            use_generated_model: true,
+            generated_model_cache: None,
             job: None,
             last_result: None,
             last_error: None,
@@ -325,16 +334,19 @@ impl TemplateApp {
     }
 
     fn prism_request_from_state(&self) -> PrismRequest {
-        let mut formula = self.verify.current_formula.clone();
-        for label in ["error_state", "goal_state"] {
-            let quoted = format!("\"{label}\"");
-            if !formula.contains(&quoted) && formula.contains(label) {
-                formula = formula.replace(label, &quoted);
-            }
-        }
+        let model = if self.verify.use_generated_model {
+            // Generate from the design graph
+            let config = PrismGenConfig::default();
+            generate_prism_model(&self.design.graph, &config)
+        } else {
+            // Use demo model
+            DEMO_PRISM_MODEL.to_owned()
+        };
+
+        let formula = self.verify.current_formula.clone();
 
         PrismRequest {
-            model: DEMO_PRISM_MODEL.to_owned(),
+            model,
             properties: vec![formula],
             options: PrismOptions::default(),
         }

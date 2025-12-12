@@ -164,6 +164,39 @@ impl SnnGraph {
         self.node(id).map(|n| n.position)
     }
 
+    /// Returns nodes with no incoming edges (root nodes / input generators).
+    pub fn input_neurons(&self) -> Vec<NodeId> {
+        self.nodes
+            .iter()
+            .filter(|n| !self.edges.iter().any(|e| e.to == n.id))
+            .map(|n| n.id)
+            .collect()
+    }
+
+    /// Returns nodes with no outgoing edges (leaf nodes / outputs).
+    pub fn output_neurons(&self) -> Vec<NodeId> {
+        self.nodes
+            .iter()
+            .filter(|n| !self.edges.iter().any(|e| e.from == n.id))
+            .map(|n| n.id)
+            .collect()
+    }
+
+    /// Returns all edges pointing to the given node.
+    pub fn incoming_edges(&self, id: NodeId) -> Vec<&Edge> {
+        self.edges.iter().filter(|e| e.to == id).collect()
+    }
+
+    /// Returns all edges originating from the given node.
+    pub fn outgoing_edges(&self, id: NodeId) -> Vec<&Edge> {
+        self.edges.iter().filter(|e| e.from == id).collect()
+    }
+
+    /// Check if a node is an input generator (ignores learning advice).
+    pub fn is_input_generator(&self, id: NodeId) -> bool {
+        self.node(id).map_or(false, |n| n.kind == NodeKind::Input)
+    }
+
     pub fn demo_layout() -> Self {
         let mut graph = Self::default();
         let input = graph.add_node("Input", NodeKind::Input, [80.0, 120.0]);

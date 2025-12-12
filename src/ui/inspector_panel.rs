@@ -143,12 +143,29 @@ fn simulate_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 }
 
 fn verify_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
-    ui.label("Property details");
-    ui.checkbox(&mut app.verify.property_enabled, "Enabled in batch");
+    ui.label("Model Source");
+    ui.checkbox(&mut app.verify.use_generated_model, "Use network graph");
+    if !app.verify.use_generated_model {
+        ui.label("Using demo DTMC model");
+    } else {
+        let n_neurons = app
+            .design
+            .graph
+            .nodes
+            .iter()
+            .filter(|n| n.kind != crate::snn::graph::NodeKind::Input)
+            .count();
+        ui.label(format!("Generating from {} neurons", n_neurons));
+    }
+
+    ui.separator();
+    ui.label("Property");
+    ui.checkbox(&mut app.verify.property_enabled, "Enabled");
     ui.text_edit_singleline(&mut app.verify.description);
     ui.add_space(4.0);
-    ui.label("Atomic proposition mapping (placeholder)");
+    ui.label("PCTL Formula:");
     ui.text_edit_multiline(&mut app.verify.current_formula);
+
     ui.separator();
-    ui.checkbox(&mut app.verify.show_model_text, "Preview generated model");
+    ui.checkbox(&mut app.verify.show_model_text, "Show PRISM model");
 }

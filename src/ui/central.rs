@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use crate::{
     app::{Mode, SimTab, TemplateApp, DEMO_PRISM_MODEL},
-    snn::graph::{NodeId, NodeKind, SnnGraph},
+    snn::{
+        graph::{NodeId, NodeKind, SnnGraph},
+        prism_gen::{generate_prism_model, PrismGenConfig},
+    },
 };
 
 const GRID_SPACING: f32 = 32.0;
@@ -534,7 +537,17 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         if app.verify.show_model_text {
             columns[1].add_space(4.0);
             columns[1].label("PRISM model preview");
-            columns[1].monospace(DEMO_PRISM_MODEL);
+            let model_text = if app.verify.use_generated_model {
+                let config = PrismGenConfig::default();
+                generate_prism_model(&app.design.graph, &config)
+            } else {
+                DEMO_PRISM_MODEL.to_owned()
+            };
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
+                .show(&mut columns[1], |ui| {
+                    ui.monospace(&model_text);
+                });
         }
 
         columns[1].separator();
