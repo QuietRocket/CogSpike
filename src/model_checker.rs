@@ -135,15 +135,8 @@ impl LocalPrism {
 
     fn parse_output(formula: &str, raw_output: String) -> PrismPropertyResult {
         let lowercase = raw_output.to_ascii_lowercase();
-        let status = if lowercase.contains("result: true") {
-            "satisfied"
-        } else if lowercase.contains("result: false") {
-            "violated"
-        } else {
-            "unknown"
-        }
-        .to_owned();
 
+        // Try to extract probability/result value first
         let probability = raw_output
             .lines()
             .find_map(|line| {
@@ -157,6 +150,21 @@ impl LocalPrism {
                     None
                 }
             });
+
+        // Determine status based on result type
+        let status = if lowercase.contains("result: true") {
+            "satisfied"
+        } else if lowercase.contains("result: false") {
+            "violated"
+        } else if probability.is_some() {
+            // Numeric result (probability or reward query)
+            "computed"
+        } else if lowercase.contains("error") {
+            "error"
+        } else {
+            "unknown"
+        }
+        .to_owned();
 
         PrismPropertyResult {
             formula: formula.to_owned(),

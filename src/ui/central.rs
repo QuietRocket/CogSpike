@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::{
     app::{Mode, SimTab, TemplateApp, DEMO_PRISM_MODEL},
+    learning::{self, collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
         prism_gen::{generate_prism_model, PrismGenConfig},
@@ -28,14 +29,9 @@ pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Contex
 fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label("Palette:");
-        for (label, kind) in [
-            ("Neuron", NodeKind::Neuron),
-            ("Population", NodeKind::Population),
-            ("Input", NodeKind::Input),
-            ("Output", NodeKind::Output),
-        ] {
-            if ui.button(label).clicked() {
-                app.design.pending_node_kind = Some(kind);
+        for kind in NodeKind::palette() {
+            if ui.button(kind.label()).clicked() {
+                app.design.pending_node_kind = Some(*kind);
                 app.push_log(format!("Click the canvas to place a {}", kind.label()));
             }
         }
@@ -325,6 +321,7 @@ fn node_color(kind: NodeKind) -> egui::Color32 {
         NodeKind::Population => egui::Color32::from_rgb(180, 255, 120),
         NodeKind::Input => egui::Color32::from_rgb(255, 200, 120),
         NodeKind::Output => egui::Color32::from_rgb(200, 200, 255),
+        NodeKind::Supervisor => egui::Color32::from_rgb(255, 120, 200), // Purple/magenta
     }
 }
 
@@ -571,6 +568,107 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             columns[1].label("Try adjusting the PRISM path or formula and rerun.");
         } else {
             columns[1].label("No verification runs yet.");
+        }
+
+        // Learning section
+        columns[1].separator();
+        columns[1].heading("Parameter Learning");
+        columns[1].add_space(4.0);
+
+        // Learning config
+        columns[1].horizontal(|ui| {
+            ui.label("Target prob:");
+            ui.add(egui::DragValue::new(&mut app.verify.learning_config.target_probability)
+                .speed(0.01)
+                .range(0.0..=1.0));
+        });
+        columns[1].horizontal(|ui| {
+            ui.label("Learning rate:");
+            ui.add(egui::DragValue::new(&mut app.verify.learning_config.learning_rate)
+                .speed(0.01)
+                .range(0.001..=1.0));
+        });
+        columns[1].horizontal(|ui| {
+            ui.label("Convergence:");
+            ui.add(egui::DragValue::new(&mut app.verify.learning_config.convergence_threshold)
+                .speed(0.001)
+                .range(0.001..=0.5));
+        });
+
+        // Run learning button
+        let can_learn = app.verify.last_result.as_ref()
+            .and_then(|r| r.first())
+            .and_then(|r| r.probability)
+            .is_some();
+
+        columns[1].add_space(4.0);
+        columns[1].horizontal(|ui| {
+            if ui.add_enabled(can_learn, egui::Button::new("▶ Run Learning Step")).clicked() {
+                // Get current probability from last result
+                if let Some(current_prob) = app.verify.last_result.as_ref()
+                    .and_then(|r| r.first())
+                    .and_then(|r| r.probability)
+                {
+                    let targets = collect_learning_targets(&app.design.graph);
+                    let firing_probs = estimate_firing_probabilities(&app.design.graph);
+
+                    let result = run_learning_iteration(
+                        &mut app.design.graph,
+                        &targets,
+                        current_prob,
+                        &firing_probs,
+                        &app.verify.learning_config,
+                    );
+
+                    // Update learning state
+                    app.verify.learning_state.iteration += 1;
+                    app.verify.learning_state.probability_history.push(current_prob);
+                    app.verify.learning_state.weight_changes.push(result.weight_changes.clone());
+                    app.verify.learning_state.converged = result.converged;
+                    app.verify.learning_state.final_error = result.error;
+
+                    let msg = format!(
+                        "Learning step {}: error={:.4}, {} weight(s) updated",
+                        app.verify.learning_state.iteration,
+                        result.error,
+                        result.weight_changes.len()
+                    );
+                    app.push_log(msg);
+
+                    if result.converged {
+                        app.push_log("Learning converged!".to_owned());
+                    }
+                }
+            }
+            if ui.button("Reset").clicked() {
+                app.verify.learning_state.reset();
+                app.push_log("Learning state reset".to_owned());
+            }
+        });
+
+        if !can_learn {
+            columns[1].label("Run verification first to get current probability.");
+        }
+
+        // Learning progress
+        if app.verify.learning_state.iteration > 0 {
+            columns[1].add_space(4.0);
+            columns[1].group(|ui| {
+                ui.label(format!("Iterations: {}", app.verify.learning_state.iteration));
+                ui.label(format!("Current error: {:.4}", app.verify.learning_state.final_error));
+                if app.verify.learning_state.converged {
+                    ui.colored_label(egui::Color32::from_rgb(50, 180, 50), "✓ Converged!");
+                }
+                if !app.verify.learning_state.probability_history.is_empty() {
+                    ui.label("Probability history:");
+                    let history: String = app.verify.learning_state.probability_history
+                        .iter()
+                        .map(|p| format!("{:.3}", p))
+                        .collect::<Vec<_>>()
+                        .join(" → ");
+                    ui.monospace(&history);
+                }
+            });
         }
     });
 }

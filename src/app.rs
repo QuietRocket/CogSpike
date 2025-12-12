@@ -1,4 +1,5 @@
 use crate::{
+    learning::{self, LearningConfig, LearningState},
     model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
@@ -207,6 +208,12 @@ pub struct VerifyState {
     pub(crate) last_result: Option<PrismResponse>,
     #[serde(skip)]
     pub(crate) last_error: Option<String>,
+    // Learning state
+    #[serde(skip)]
+    pub(crate) learning_running: bool,
+    #[serde(skip)]
+    pub(crate) learning_state: LearningState,
+    pub(crate) learning_config: LearningConfig,
 }
 
 impl Default for VerifyState {
@@ -221,6 +228,9 @@ impl Default for VerifyState {
             job: None,
             last_result: None,
             last_error: None,
+            learning_running: false,
+            learning_state: LearningState::default(),
+            learning_config: LearningConfig::default(),
         }
     }
 }
