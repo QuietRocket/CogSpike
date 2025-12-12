@@ -12,6 +12,8 @@ pub enum NodeKind {
     Population,
     Input,
     Output,
+    /// Supervisor node for learning - monitors a neuron and specifies target probability.
+    Supervisor,
 }
 
 impl NodeKind {
@@ -21,7 +23,19 @@ impl NodeKind {
             NodeKind::Population => "Population",
             NodeKind::Input => "Input",
             NodeKind::Output => "Output",
+            NodeKind::Supervisor => "Supervisor",
         }
+    }
+
+    /// Returns all node kinds available for manual creation.
+    pub const fn palette() -> &'static [NodeKind] {
+        &[
+            NodeKind::Neuron,
+            NodeKind::Population,
+            NodeKind::Input,
+            NodeKind::Output,
+            NodeKind::Supervisor,
+        ]
     }
 }
 
@@ -54,12 +68,36 @@ impl Default for NeuronParams {
     }
 }
 
+/// Parameters for a Supervisor node (used in learning).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupervisorParams {
+    /// Target probability for the supervised neuron (0.0 to 1.0).
+    pub target_probability: f64,
+    /// PCTL formula to verify (e.g., "F spike").
+    pub target_formula: String,
+    /// The neuron being supervised (connected via edge).
+    pub watched_neuron: Option<NodeId>,
+}
+
+impl Default for SupervisorParams {
+    fn default() -> Self {
+        Self {
+            target_probability: 0.8,
+            target_formula: "F \"spike\"".to_owned(),
+            watched_neuron: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Node {
     pub id: NodeId,
     pub label: String,
     pub kind: NodeKind,
     pub params: NeuronParams,
+    /// Supervisor parameters (only used when kind == Supervisor).
+    #[serde(default)]
+    pub supervisor_params: SupervisorParams,
     pub position: [f32; 2],
 }
 
@@ -116,6 +154,7 @@ impl SnnGraph {
             label: label.into(),
             kind,
             params: NeuronParams::default(),
+            supervisor_params: SupervisorParams::default(),
             position,
         });
         id
@@ -195,6 +234,26 @@ impl SnnGraph {
     /// Check if a node is an input generator (ignores learning advice).
     pub fn is_input_generator(&self, id: NodeId) -> bool {
         self.node(id).map_or(false, |n| n.kind == NodeKind::Input)
+    }
+
+    /// Returns all supervisor nodes in the graph.
+    pub fn supervisors(&self) -> Vec<&Node> {
+        self.nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Supervisor)
+            .collect()
+    }
+
+    /// Find the edge by ID and return a mutable reference.
+    pub fn edge_mut(&mut self, id: EdgeId) -> Option<&mut Edge> {
+        self.edges.iter_mut().find(|e| e.id == id)
+    }
+
+    /// Update the weight of an edge.
+    pub fn update_weight(&mut self, id: EdgeId, new_weight: f32) {
+        if let Some(edge) = self.edge_mut(id) {
+            edge.weight = new_weight;
+        }
     }
 
     pub fn demo_layout() -> Self {

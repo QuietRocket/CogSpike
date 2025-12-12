@@ -107,6 +107,25 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                         }
                     });
             });
+
+            // Supervisor-specific parameters
+            if node.kind == crate::snn::graph::NodeKind::Supervisor {
+                ui.separator();
+                ui.heading("Supervisor Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Target Prob");
+                    ui.add(
+                        egui::DragValue::new(&mut node.supervisor_params.target_probability)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Formula");
+                    ui.text_edit_singleline(&mut node.supervisor_params.target_formula);
+                });
+                ui.label("Connects to the neuron it supervises for learning.");
+            }
         } else {
             app.design.selected_node = None;
             ui.label("Selected node no longer exists");
