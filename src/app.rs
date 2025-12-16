@@ -1,5 +1,5 @@
 use crate::{
-    learning::{LearningConfig, LearningState},
+    learning::{LearningConfig, LearningState, TrainingProgress, TrainingResult},
     model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
@@ -192,6 +192,50 @@ impl Default for SimulateState {
     }
 }
 
+/// Background training job that runs the training loop on a separate thread.
+pub struct TrainingJob {
+    /// When the training started.
+    pub started_at: std::time::Instant,
+    /// Receiver for progress updates during training.
+    progress_rx: std::sync::mpsc::Receiver<TrainingProgress>,
+    /// Receiver for the final training result.
+    result_rx: std::sync::mpsc::Receiver<(TrainingResult, SnnGraph)>,
+    /// Latest progress received (for display).
+    pub latest_progress: Option<TrainingProgress>,
+}
+
+impl TrainingJob {
+    pub fn new(
+        progress_rx: std::sync::mpsc::Receiver<TrainingProgress>,
+        result_rx: std::sync::mpsc::Receiver<(TrainingResult, SnnGraph)>,
+    ) -> Self {
+        Self {
+            started_at: std::time::Instant::now(),
+            progress_rx,
+            result_rx,
+            latest_progress: None,
+        }
+    }
+
+    /// Poll for any progress updates (non-blocking).
+    pub fn poll_progress(&mut self) -> Option<TrainingProgress> {
+        // Drain all available progress messages, keep the latest
+        let mut latest = None;
+        while let Ok(progress) = self.progress_rx.try_recv() {
+            latest = Some(progress);
+        }
+        if latest.is_some() {
+            self.latest_progress = latest.clone();
+        }
+        latest
+    }
+
+    /// Check if training completed and get the result (non-blocking).
+    pub fn try_get_result(&self) -> Option<(TrainingResult, SnnGraph)> {
+        self.result_rx.try_recv().ok()
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[allow(dead_code)]
 pub struct VerifyState {
@@ -217,6 +261,11 @@ pub struct VerifyState {
     #[serde(skip)]
     pub(crate) learning_state: LearningState,
     pub(crate) learning_config: LearningConfig,
+    // Training job (automated training loop)
+    #[serde(skip)]
+    pub(crate) training_job: Option<TrainingJob>,
+    #[serde(skip)]
+    pub(crate) last_training_result: Option<TrainingResult>,
 }
 
 impl Default for VerifyState {
@@ -235,6 +284,8 @@ impl Default for VerifyState {
             learning_running: false,
             learning_state: LearningState::default(),
             learning_config: LearningConfig::default(),
+            training_job: None,
+            last_training_result: None,
         }
     }
 }
@@ -417,6 +468,196 @@ impl TemplateApp {
                     self.push_log(format!("PRISM failed after {:.1?}: {err}", elapsed));
                 }
             }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn start_training(&mut self) -> Result<(), String> {
+        Err("Training is unavailable on the web build".to_owned())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn start_training(&mut self) -> Result<(), String> {
+        use crate::learning::{
+            collect_learning_targets, estimate_firing_probabilities, run_learning_iteration,
+        };
+
+        if self.verify.training_job.is_some() {
+            return Err("Training already running".to_owned());
+        }
+        if self.verify.job.is_some() {
+            return Err("Model checker already running".to_owned());
+        }
+
+        self.model_checker = Some(Arc::new(LocalPrism::new(&self.backend.prism_path)));
+
+        let Some(checker) = self.model_checker.clone() else {
+            return Err("No model checker backend is configured".to_owned());
+        };
+
+        // Clone the necessary state for the training thread
+        let mut graph = self.design.graph.clone();
+        let config = self.verify.learning_config.clone();
+        let formula = self.verify.current_formula.clone();
+        let use_generated_model = self.verify.use_generated_model;
+
+        // Channels for progress and result
+        let (progress_tx, progress_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            let targets = collect_learning_targets(&graph);
+            if targets.is_empty() {
+                let _ = result_tx.send((
+                    TrainingResult::Error("No learning targets found".to_owned()),
+                    graph,
+                ));
+                return;
+            }
+
+            for iteration in 1..=config.max_iterations {
+                // Generate PRISM model from current graph
+                let model = if use_generated_model {
+                    let prism_config = PrismGenConfig::default();
+                    generate_prism_model(&graph, &prism_config)
+                } else {
+                    DEMO_PRISM_MODEL.to_owned()
+                };
+
+                // Run verification
+                let request = PrismRequest {
+                    model,
+                    properties: vec![formula.clone()],
+                    options: PrismOptions::default(),
+                };
+
+                let current_probability = match checker.check(request) {
+                    Ok(response) => response.first().and_then(|r| r.probability).unwrap_or(0.0),
+                    Err(e) => {
+                        let _ = result_tx.send((TrainingResult::Error(e.to_string()), graph));
+                        return;
+                    }
+                };
+
+                // Check convergence
+                let error = config.target_probability - current_probability;
+                if error.abs() < config.convergence_threshold {
+                    let _ = result_tx.send((
+                        TrainingResult::Converged {
+                            iterations: iteration,
+                            final_probability: current_probability,
+                            final_error: error,
+                        },
+                        graph,
+                    ));
+                    return;
+                }
+
+                // Run learning iteration
+                let firing_probs = estimate_firing_probabilities(&graph);
+                let result = run_learning_iteration(
+                    &mut graph,
+                    &targets,
+                    current_probability,
+                    &firing_probs,
+                    &config,
+                );
+
+                // Send progress
+                let progress = TrainingProgress {
+                    iteration,
+                    max_iterations: config.max_iterations,
+                    current_probability,
+                    error,
+                    weights_changed: result.weight_changes.len(),
+                };
+                let _ = progress_tx.send(progress);
+            }
+
+            // Max iterations reached
+            let _ = result_tx.send((
+                TrainingResult::MaxIterations {
+                    iterations: config.max_iterations,
+                    final_probability: 0.0,
+                    final_error: config.target_probability,
+                },
+                graph,
+            ));
+        });
+
+        self.verify.training_job = Some(TrainingJob::new(progress_rx, result_rx));
+        self.verify.last_training_result = None;
+        self.push_log(format!(
+            "Started automated training (target={:.2}, max_iter={})",
+            self.verify.learning_config.target_probability,
+            self.verify.learning_config.max_iterations
+        ));
+        Ok(())
+    }
+
+    pub(crate) fn poll_training_job(&mut self) {
+        let Some(job) = self.verify.training_job.as_mut() else {
+            return;
+        };
+
+        // Poll for progress updates
+        if let Some(progress) = job.poll_progress() {
+            // Update learning state with progress
+            self.verify.learning_state.iteration = progress.iteration;
+            self.verify.learning_state.final_error = progress.error;
+            if !self
+                .verify
+                .learning_state
+                .probability_history
+                .iter()
+                .any(|&p| (p - progress.current_probability).abs() < 0.0001)
+            {
+                self.verify
+                    .learning_state
+                    .probability_history
+                    .push(progress.current_probability);
+            }
+        }
+
+        // Check for completion
+        if let Some((result, updated_graph)) = job.try_get_result() {
+            let elapsed = job.started_at.elapsed();
+            self.verify.training_job = None;
+
+            // Update the graph with trained weights
+            self.design.graph = updated_graph;
+
+            match &result {
+                TrainingResult::Converged {
+                    iterations,
+                    final_probability,
+                    ..
+                } => {
+                    self.verify.learning_state.converged = true;
+                    self.push_log(format!(
+                        "Training converged in {} iterations (prob={:.4}) in {:.1?}",
+                        iterations, final_probability, elapsed
+                    ));
+                }
+                TrainingResult::MaxIterations {
+                    iterations,
+                    final_probability,
+                    ..
+                } => {
+                    self.push_log(format!(
+                        "Training reached max {} iterations (prob={:.4}) in {:.1?}",
+                        iterations, final_probability, elapsed
+                    ));
+                }
+                TrainingResult::Stopped { iterations, .. } => {
+                    self.push_log(format!("Training stopped at iteration {}", iterations));
+                }
+                TrainingResult::Error(e) => {
+                    self.push_log(format!("Training failed: {e}"));
+                }
+            }
+
+            self.verify.last_training_result = Some(result);
         }
     }
 }

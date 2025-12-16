@@ -463,7 +463,8 @@ fn placeholder_plot(ui: &mut egui::Ui, label: &str) {
 
 fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     app.poll_model_checker();
-    if app.verify.job.is_some() {
+    app.poll_training_job();
+    if app.verify.job.is_some() || app.verify.training_job.is_some() {
         ctx.request_repaint_after(Duration::from_millis(100));
     }
 
@@ -646,6 +647,13 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .range(0.001..=0.5),
             );
         });
+        columns[1].add_space(4.0);
+        columns[1].horizontal(|ui| {
+            if ui.button("🎲 Randomize Weights").clicked() {
+                app.design.graph.randomize_weights_symmetric(1.0);
+                app.push_log("Weights randomized to [-1.0, 1.0]".to_owned());
+            }
+        });
 
         // Run learning button
         let can_learn = app
@@ -713,7 +721,45 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
 
-        if !can_learn {
+        // Full automated training button
+        let training_running = app.verify.training_job.is_some();
+        let can_start_training = !training_running && app.verify.job.is_none();
+
+        columns[1].add_space(4.0);
+        columns[1].horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    can_start_training,
+                    egui::Button::new("🔄 Run Full Training"),
+                )
+                .clicked()
+            {
+                if let Err(e) = app.start_training() {
+                    app.push_log(format!("Failed to start training: {e}"));
+                }
+            }
+
+            if training_running {
+                ui.spinner();
+                if let Some(job) = &app.verify.training_job {
+                    let elapsed = job.started_at.elapsed();
+                    if let Some(progress) = &job.latest_progress {
+                        ui.label(format!(
+                            "Iter {}/{}, prob={:.3}, err={:.3} ({:.1?})",
+                            progress.iteration,
+                            progress.max_iterations,
+                            progress.current_probability,
+                            progress.error,
+                            elapsed
+                        ));
+                    } else {
+                        ui.label(format!("Starting... ({:.1?})", elapsed));
+                    }
+                }
+            }
+        });
+
+        if !can_learn && !training_running {
             columns[1].label("Run verification first to get current probability.");
         }
 

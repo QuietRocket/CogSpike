@@ -68,6 +68,129 @@ impl LearningState {
 /// Firing probability estimates for neurons (from PRISM results or simulation).
 pub type FiringProbabilities = HashMap<NodeId, f64>;
 
+/// Result of a complete training run.
+#[derive(Debug, Clone)]
+pub enum TrainingResult {
+    /// Training converged within the threshold.
+    Converged {
+        iterations: u32,
+        final_probability: f64,
+        final_error: f64,
+    },
+    /// Reached maximum iterations without converging.
+    MaxIterations {
+        iterations: u32,
+        final_probability: f64,
+        final_error: f64,
+    },
+    /// Training was stopped by user or callback.
+    Stopped {
+        iterations: u32,
+        last_probability: f64,
+    },
+    /// An error occurred during training.
+    Error(String),
+}
+
+/// Progress information for a training step.
+#[derive(Debug, Clone)]
+pub struct TrainingProgress {
+    /// Current iteration number.
+    pub iteration: u32,
+    /// Maximum iterations allowed.
+    pub max_iterations: u32,
+    /// Current probability from verification.
+    pub current_probability: f64,
+    /// Current error (target - current).
+    pub error: f64,
+    /// Number of weights changed this iteration.
+    pub weights_changed: usize,
+}
+
+/// Callback type for training progress. Return `false` to stop training.
+pub type ProgressCallback = Box<dyn FnMut(&TrainingProgress) -> bool + Send>;
+
+/// Run a complete training loop with a verification callback.
+///
+/// This function alternates between:
+/// 1. Calling the verifier to get current probability
+/// 2. Running SHF/SNHF to adjust weights
+/// 3. Repeating until converged or max iterations
+///
+/// # Arguments
+/// * `graph` - The SNN graph (weights will be modified)
+/// * `config` - Learning configuration with target, learning rate, etc.
+/// * `verify_fn` - Callback function that runs PRISM and returns the current probability
+/// * `progress_fn` - Optional callback for progress updates (return `false` to stop)
+///
+/// # Returns
+/// The result of the training run.
+pub fn run_training_loop<F>(
+    graph: &mut SnnGraph,
+    config: &LearningConfig,
+    mut verify_fn: F,
+    mut progress_fn: Option<ProgressCallback>,
+) -> TrainingResult
+where
+    F: FnMut(&SnnGraph) -> Result<f64, String>,
+{
+    let targets = collect_learning_targets(graph);
+    if targets.is_empty() {
+        return TrainingResult::Error("No learning targets found".to_owned());
+    }
+
+    for iteration in 1..=config.max_iterations {
+        // Step 1: Run verification to get current probability
+        let current_probability = match verify_fn(graph) {
+            Ok(prob) => prob,
+            Err(e) => return TrainingResult::Error(e),
+        };
+
+        // Step 2: Check convergence
+        let error = config.target_probability - current_probability;
+        if error.abs() < config.convergence_threshold {
+            return TrainingResult::Converged {
+                iterations: iteration,
+                final_probability: current_probability,
+                final_error: error,
+            };
+        }
+
+        // Step 3: Run learning iteration
+        let firing_probs = estimate_firing_probabilities(graph);
+        let result =
+            run_learning_iteration(graph, &targets, current_probability, &firing_probs, config);
+
+        // Step 4: Report progress
+        let progress = TrainingProgress {
+            iteration,
+            max_iterations: config.max_iterations,
+            current_probability,
+            error,
+            weights_changed: result.weight_changes.len(),
+        };
+
+        if let Some(ref mut callback) = progress_fn {
+            if !callback(&progress) {
+                return TrainingResult::Stopped {
+                    iterations: iteration,
+                    last_probability: current_probability,
+                };
+            }
+        }
+    }
+
+    // Get final probability after max iterations
+    let final_prob = verify_fn(graph).unwrap_or(0.0);
+    let final_error = config.target_probability - final_prob;
+
+    TrainingResult::MaxIterations {
+        iterations: config.max_iterations,
+        final_probability: final_prob,
+        final_error,
+    }
+}
+
 /// Result of a single learning iteration.
 #[derive(Debug, Clone)]
 pub struct IterationResult {
@@ -320,7 +443,7 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
 
     for node in &graph.nodes {
         let prob = match node.kind {
-            NodeKind::Input => 1.0, // Inputs always fire
+            NodeKind::Input => 1.0,      // Inputs always fire
             NodeKind::Supervisor => 0.0, // Supervisors don't fire
             _ => {
                 // Estimate based on parameters
@@ -385,11 +508,7 @@ mod tests {
         let mut graph = SnnGraph::demo_layout();
 
         // Get initial weights
-        let initial_weights: HashMap<_, _> = graph
-            .edges
-            .iter()
-            .map(|e| (e.id, e.weight))
-            .collect();
+        let initial_weights: HashMap<_, _> = graph.edges.iter().map(|e| (e.id, e.weight)).collect();
 
         // Run SHF on output neuron
         let output = graph.output_neurons()[0];
@@ -420,7 +539,10 @@ mod tests {
                 }
             }
         }
-        assert!(any_changed, "At least one weight should have been modified in the graph");
+        assert!(
+            any_changed,
+            "At least one weight should have been modified in the graph"
+        );
     }
 
     #[test]
@@ -438,7 +560,10 @@ mod tests {
             &config,
         );
 
-        assert!(result.error > 0.0, "Error should be positive when prob is low");
+        assert!(
+            result.error > 0.0,
+            "Error should be positive when prob is low"
+        );
         assert!(!result.converged, "Should not converge on first iteration");
     }
 

@@ -1,3 +1,4 @@
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -249,10 +250,10 @@ impl SnnGraph {
         self.edges.iter_mut().find(|e| e.id == id)
     }
 
-    /// Update the weight of an edge.
+    /// Update the weight of an edge, clamping to [-1.0, 1.0].
     pub fn update_weight(&mut self, id: EdgeId, new_weight: f32) {
         if let Some(edge) = self.edge_mut(id) {
-            edge.weight = new_weight;
+            edge.weight = new_weight.clamp(-1.0, 1.0);
         }
     }
 
@@ -268,5 +269,20 @@ impl SnnGraph {
         graph.add_edge(neuron_b, output, -Self::DEFAULT_WEIGHT);
 
         graph
+    }
+
+    /// Randomize all edge weights within the given range [min, max].
+    /// Weights are clamped to [-1.0, 1.0] after randomization.
+    pub fn randomize_weights(&mut self, min: f32, max: f32) {
+        let mut rng = rand::thread_rng();
+        for edge in &mut self.edges {
+            edge.weight = rng.gen_range(min..=max).clamp(-1.0, 1.0);
+        }
+    }
+
+    /// Randomize all edge weights symmetrically within [-range, range].
+    /// Weights are clamped to [-1.0, 1.0] after randomization.
+    pub fn randomize_weights_symmetric(&mut self, range: f32) {
+        self.randomize_weights(-range.abs(), range.abs());
     }
 }
