@@ -443,8 +443,7 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
 
     for node in &graph.nodes {
         let prob = match node.kind {
-            NodeKind::Input => 1.0,      // Inputs always fire
-            NodeKind::Supervisor => 0.0, // Supervisors don't fire
+            NodeKind::Input => 1.0, // Inputs always fire
             _ => {
                 // Estimate based on parameters
                 // Higher leak_r means potential builds up more (higher firing prob)
@@ -460,26 +459,18 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
     probs
 }
 
-/// Collect output neurons for learning (nodes with Supervisor connections or Output nodes).
+/// Collect output neurons for learning (nodes with target_probability set, or Output nodes).
 pub fn collect_learning_targets(graph: &SnnGraph) -> Vec<NodeId> {
     let mut targets = Vec::new();
 
-    // Add nodes connected FROM supervisors
-    for supervisor in graph.supervisors() {
-        for edge in graph.outgoing_edges(supervisor.id) {
-            if !targets.contains(&edge.to) {
-                targets.push(edge.to);
-            }
-        }
-        // Also check watched_neuron field
-        if let Some(watched) = supervisor.supervisor_params.watched_neuron {
-            if !targets.contains(&watched) {
-                targets.push(watched);
-            }
+    // Add nodes with target_probability set (explicit learning targets)
+    for node in &graph.nodes {
+        if node.target_probability.is_some() && !targets.contains(&node.id) {
+            targets.push(node.id);
         }
     }
 
-    // If no supervisors, use output neurons
+    // If no explicit targets, use output neurons
     if targets.is_empty() {
         targets.extend(
             graph

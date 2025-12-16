@@ -13,8 +13,6 @@ pub enum NodeKind {
     Population,
     Input,
     Output,
-    /// Supervisor node for learning - monitors a neuron and specifies target probability.
-    Supervisor,
 }
 
 impl NodeKind {
@@ -24,7 +22,6 @@ impl NodeKind {
             NodeKind::Population => "Population",
             NodeKind::Input => "Input",
             NodeKind::Output => "Output",
-            NodeKind::Supervisor => "Supervisor",
         }
     }
 
@@ -35,7 +32,6 @@ impl NodeKind {
             NodeKind::Population,
             NodeKind::Input,
             NodeKind::Output,
-            NodeKind::Supervisor,
         ]
     }
 }
@@ -69,36 +65,19 @@ impl Default for NeuronParams {
     }
 }
 
-/// Parameters for a Supervisor node (used in learning).
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SupervisorParams {
-    /// Target probability for the supervised neuron (0.0 to 1.0).
-    pub target_probability: f64,
-    /// PCTL formula to verify (e.g., "F spike").
-    pub target_formula: String,
-    /// The neuron being supervised (connected via edge).
-    pub watched_neuron: Option<NodeId>,
-}
-
-impl Default for SupervisorParams {
-    fn default() -> Self {
-        Self {
-            target_probability: 0.8,
-            target_formula: "F \"spike\"".to_owned(),
-            watched_neuron: None,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Node {
     pub id: NodeId,
     pub label: String,
     pub kind: NodeKind,
     pub params: NeuronParams,
-    /// Supervisor parameters (only used when kind == Supervisor).
+    /// Optional learning target probability (0.0 to 1.0).
+    /// When set, this node becomes a learning target.
     #[serde(default)]
-    pub supervisor_params: SupervisorParams,
+    pub target_probability: Option<f64>,
+    /// Optional PCTL formula for verification (e.g., "F \"spike\"").
+    #[serde(default)]
+    pub target_formula: Option<String>,
     pub position: [f32; 2],
 }
 
@@ -170,7 +149,8 @@ impl SnnGraph {
             label: label.into(),
             kind,
             params: NeuronParams::default(),
-            supervisor_params: SupervisorParams::default(),
+            target_probability: None,
+            target_formula: None,
             position,
         });
         id
@@ -271,11 +251,11 @@ impl SnnGraph {
         self.node(id).map_or(false, |n| n.kind == NodeKind::Input)
     }
 
-    /// Returns all supervisor nodes in the graph.
-    pub fn supervisors(&self) -> Vec<&Node> {
+    /// Returns all nodes that are learning targets (have target_probability set).
+    pub fn learning_targets(&self) -> Vec<&Node> {
         self.nodes
             .iter()
-            .filter(|n| n.kind == NodeKind::Supervisor)
+            .filter(|n| n.target_probability.is_some())
             .collect()
     }
 

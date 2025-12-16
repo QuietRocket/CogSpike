@@ -108,23 +108,37 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     });
             });
 
-            // Supervisor-specific parameters
-            if node.kind == crate::snn::graph::NodeKind::Supervisor {
+            // Learning target settings (for Output nodes)
+            if node.kind == crate::snn::graph::NodeKind::Output {
                 ui.separator();
-                ui.heading("Supervisor Settings");
-                ui.horizontal(|ui| {
-                    ui.label("Target Prob");
-                    ui.add(
-                        egui::DragValue::new(&mut node.supervisor_params.target_probability)
-                            .speed(0.01)
-                            .range(0.0..=1.0),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Formula");
-                    ui.text_edit_singleline(&mut node.supervisor_params.target_formula);
-                });
-                ui.label("Connects to the neuron it supervises for learning.");
+                ui.heading("Learning Target");
+
+                let mut is_target = node.target_probability.is_some();
+                if ui
+                    .checkbox(&mut is_target, "Enable as learning target")
+                    .changed()
+                {
+                    if is_target {
+                        node.target_probability = Some(0.8);
+                        node.target_formula = Some("F \"spike\"".to_owned());
+                    } else {
+                        node.target_probability = None;
+                        node.target_formula = None;
+                    }
+                }
+
+                if let Some(ref mut prob) = node.target_probability {
+                    ui.horizontal(|ui| {
+                        ui.label("Target Prob");
+                        ui.add(egui::DragValue::new(prob).speed(0.01).range(0.0..=1.0));
+                    });
+                }
+                if let Some(ref mut formula) = node.target_formula {
+                    ui.horizontal(|ui| {
+                        ui.label("Formula");
+                        ui.text_edit_singleline(formula);
+                    });
+                }
             }
         } else {
             app.design.selected_node = None;

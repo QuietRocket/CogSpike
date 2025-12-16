@@ -75,8 +75,8 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 
     // Neuron modules
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input || node.kind == NodeKind::Supervisor {
-            continue; // Inputs handled separately, Supervisors are for learning only
+        if node.kind == NodeKind::Input {
+            continue; // Inputs handled separately
         }
         write_neuron_module(&mut out, node, graph, config);
         writeln!(out).ok();
@@ -134,14 +134,6 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Synaptic weights").ok();
     for edge in &graph.edges {
         let from_node = graph.node(edge.from);
-        let to_node = graph.node(edge.to);
-
-        // Skip edges involving Supervisor nodes
-        if from_node.map_or(false, |n| n.kind == NodeKind::Supervisor)
-            || to_node.map_or(false, |n| n.kind == NodeKind::Supervisor)
-        {
-            continue;
-        }
 
         let is_input = from_node.map_or(false, |n| n.kind == NodeKind::Input);
         // Use signed_weight() to get effective weight (negative for inhibitory)
@@ -175,14 +167,6 @@ fn write_transfer_formulas(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Transfer variables for spike propagation").ok();
     for edge in &graph.edges {
         let from_node = graph.node(edge.from);
-        let to_node = graph.node(edge.to);
-
-        // Skip edges involving Supervisor nodes
-        if from_node.map_or(false, |n| n.kind == NodeKind::Supervisor)
-            || to_node.map_or(false, |n| n.kind == NodeKind::Supervisor)
-        {
-            continue;
-        }
 
         if from_node.map_or(false, |n| n.kind != NodeKind::Input) {
             // Neuron-to-neuron edges need transfer variables
@@ -200,21 +184,12 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
     writeln!(out, "// Membrane potential update formulas").ok();
 
     for node in &graph.nodes {
-        // Skip Input and Supervisor nodes
-        if node.kind == NodeKind::Input || node.kind == NodeKind::Supervisor {
+        // Skip Input nodes
+        if node.kind == NodeKind::Input {
             continue;
         }
 
-        // Get incoming edges, excluding those from Supervisors
-        let incoming: Vec<_> = graph
-            .incoming_edges(node.id)
-            .into_iter()
-            .filter(|e| {
-                graph
-                    .node(e.from)
-                    .map_or(false, |n| n.kind != NodeKind::Supervisor)
-            })
-            .collect();
+        let incoming: Vec<_> = graph.incoming_edges(node.id).into_iter().collect();
 
         if incoming.is_empty() {
             // No inputs, potential just decays
@@ -421,15 +396,9 @@ fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
 
     for edge in &graph.edges {
         let from_node = graph.node(edge.from);
-        let to_node = graph.node(edge.to);
 
-        // Skip edges involving Supervisor nodes or Input nodes
-        if from_node.map_or(true, |n| {
-            n.kind == NodeKind::Input || n.kind == NodeKind::Supervisor
-        }) {
-            continue;
-        }
-        if to_node.map_or(false, |n| n.kind == NodeKind::Supervisor) {
+        // Skip edges from Input nodes (they don't need transfer modules)
+        if from_node.map_or(true, |n| n.kind == NodeKind::Input) {
             continue;
         }
 
@@ -456,8 +425,8 @@ fn write_rewards(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Spike count rewards").ok();
 
     for node in &graph.nodes {
-        // Skip Input and Supervisor nodes - they don't have neuron modules
-        if node.kind == NodeKind::Input || node.kind == NodeKind::Supervisor {
+        // Skip Input nodes - they don't have neuron modules
+        if node.kind == NodeKind::Input {
             continue;
         }
         writeln!(out, "rewards \"spike{}_count\"", node.id.0).ok();
@@ -471,8 +440,8 @@ fn write_labels(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Labels for PCTL properties").ok();
 
     for node in &graph.nodes {
-        // Skip Input and Supervisor nodes - they don't have neuron modules
-        if node.kind == NodeKind::Input || node.kind == NodeKind::Supervisor {
+        // Skip Input nodes - they don't have neuron modules
+        if node.kind == NodeKind::Input {
             continue;
         }
         writeln!(out, "label \"spike{}\" = (y{} = 1);", node.id.0, node.id.0).ok();
@@ -484,16 +453,8 @@ fn write_labels(out: &mut String, graph: &SnnGraph) {
         .ok();
     }
 
-    // Output neurons (exclude Supervisors - they're for learning, not actual outputs)
-    let outputs: Vec<_> = graph
-        .output_neurons()
-        .into_iter()
-        .filter(|id| {
-            graph
-                .node(*id)
-                .map_or(false, |n| n.kind != NodeKind::Supervisor)
-        })
-        .collect();
+    // Output neurons
+    let outputs = graph.output_neurons();
 
     if !outputs.is_empty() {
         let output_spikes: Vec<_> = outputs.iter().map(|id| format!("y{} = 1", id.0)).collect();

@@ -375,7 +375,6 @@ fn node_color(kind: NodeKind) -> egui::Color32 {
         NodeKind::Population => egui::Color32::from_rgb(180, 255, 120),
         NodeKind::Input => egui::Color32::from_rgb(255, 200, 120),
         NodeKind::Output => egui::Color32::from_rgb(200, 200, 255),
-        NodeKind::Supervisor => egui::Color32::from_rgb(255, 120, 200), // Purple/magenta
     }
 }
 
