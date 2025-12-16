@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use crate::{
-    app::{Mode, SimTab, TemplateApp, DEMO_PRISM_MODEL},
-    learning::{self, collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
+    app::{DEMO_PRISM_MODEL, Mode, SimTab, TemplateApp},
+    learning::{
+        self, collect_learning_targets, estimate_firing_probabilities, run_learning_iteration,
+    },
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
-        prism_gen::{generate_prism_model, PrismGenConfig},
+        prism_gen::{PrismGenConfig, generate_prism_model},
     },
 };
 
@@ -493,8 +495,50 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             app.verify.last_result = None;
             app.verify.last_error = None;
         }
+        ui.separator();
+        if ui.button("📄 View Model").clicked() {
+            app.verify.show_model_window = true;
+        }
     });
     ui.separator();
+
+    // PRISM Model Viewer Window
+    let mut show_model_window = app.verify.show_model_window;
+    egui::Window::new("PRISM Model Viewer")
+        .open(&mut show_model_window)
+        .default_size(egui::vec2(600.0, 500.0))
+        .resizable(true)
+        .scroll([true, true])
+        .show(ctx, |ui| {
+            let model_text = if app.verify.use_generated_model {
+                let config = PrismGenConfig::default();
+                generate_prism_model(&app.design.graph, &config)
+            } else {
+                DEMO_PRISM_MODEL.to_owned()
+            };
+
+            ui.horizontal(|ui| {
+                if ui.button("📋 Copy to Clipboard").clicked() {
+                    ctx.copy_text(model_text.clone());
+                    app.push_log("PRISM model copied to clipboard");
+                }
+                ui.separator();
+                ui.label(format!("{} lines", model_text.lines().count()));
+            });
+            ui.separator();
+
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut model_text.as_str())
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(30),
+                    );
+                });
+        });
+    app.verify.show_model_window = show_model_window;
 
     ui.horizontal(|ui| {
         ui.label("Status:");
@@ -507,7 +551,11 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 format!("Error: {err}"),
             );
         } else if let Some(results) = &app.verify.last_result {
-            ui.label(format!("Completed ({} result{})", results.len(), if results.len() == 1 { "" } else { "s" }));
+            ui.label(format!(
+                "Completed ({} result{})",
+                results.len(),
+                if results.len() == 1 { "" } else { "s" }
+            ));
         } else {
             ui.label("Idle");
         }
@@ -578,34 +626,49 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         // Learning config
         columns[1].horizontal(|ui| {
             ui.label("Target prob:");
-            ui.add(egui::DragValue::new(&mut app.verify.learning_config.target_probability)
-                .speed(0.01)
-                .range(0.0..=1.0));
+            ui.add(
+                egui::DragValue::new(&mut app.verify.learning_config.target_probability)
+                    .speed(0.01)
+                    .range(0.0..=1.0),
+            );
         });
         columns[1].horizontal(|ui| {
             ui.label("Learning rate:");
-            ui.add(egui::DragValue::new(&mut app.verify.learning_config.learning_rate)
-                .speed(0.01)
-                .range(0.001..=1.0));
+            ui.add(
+                egui::DragValue::new(&mut app.verify.learning_config.learning_rate)
+                    .speed(0.01)
+                    .range(0.001..=1.0),
+            );
         });
         columns[1].horizontal(|ui| {
             ui.label("Convergence:");
-            ui.add(egui::DragValue::new(&mut app.verify.learning_config.convergence_threshold)
-                .speed(0.001)
-                .range(0.001..=0.5));
+            ui.add(
+                egui::DragValue::new(&mut app.verify.learning_config.convergence_threshold)
+                    .speed(0.001)
+                    .range(0.001..=0.5),
+            );
         });
 
         // Run learning button
-        let can_learn = app.verify.last_result.as_ref()
+        let can_learn = app
+            .verify
+            .last_result
+            .as_ref()
             .and_then(|r| r.first())
             .and_then(|r| r.probability)
             .is_some();
 
         columns[1].add_space(4.0);
         columns[1].horizontal(|ui| {
-            if ui.add_enabled(can_learn, egui::Button::new("▶ Run Learning Step")).clicked() {
+            if ui
+                .add_enabled(can_learn, egui::Button::new("▶ Run Learning Step"))
+                .clicked()
+            {
                 // Get current probability from last result
-                if let Some(current_prob) = app.verify.last_result.as_ref()
+                if let Some(current_prob) = app
+                    .verify
+                    .last_result
+                    .as_ref()
                     .and_then(|r| r.first())
                     .and_then(|r| r.probability)
                 {
@@ -622,8 +685,14 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     // Update learning state
                     app.verify.learning_state.iteration += 1;
-                    app.verify.learning_state.probability_history.push(current_prob);
-                    app.verify.learning_state.weight_changes.push(result.weight_changes.clone());
+                    app.verify
+                        .learning_state
+                        .probability_history
+                        .push(current_prob);
+                    app.verify
+                        .learning_state
+                        .weight_changes
+                        .push(result.weight_changes.clone());
                     app.verify.learning_state.converged = result.converged;
                     app.verify.learning_state.final_error = result.error;
 
@@ -654,14 +723,23 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         if app.verify.learning_state.iteration > 0 {
             columns[1].add_space(4.0);
             columns[1].group(|ui| {
-                ui.label(format!("Iterations: {}", app.verify.learning_state.iteration));
-                ui.label(format!("Current error: {:.4}", app.verify.learning_state.final_error));
+                ui.label(format!(
+                    "Iterations: {}",
+                    app.verify.learning_state.iteration
+                ));
+                ui.label(format!(
+                    "Current error: {:.4}",
+                    app.verify.learning_state.final_error
+                ));
                 if app.verify.learning_state.converged {
                     ui.colored_label(egui::Color32::from_rgb(50, 180, 50), "✓ Converged!");
                 }
                 if !app.verify.learning_state.probability_history.is_empty() {
                     ui.label("Probability history:");
-                    let history: String = app.verify.learning_state.probability_history
+                    let history: String = app
+                        .verify
+                        .learning_state
+                        .probability_history
                         .iter()
                         .map(|p| format!("{:.3}", p))
                         .collect::<Vec<_>>()

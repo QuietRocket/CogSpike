@@ -3,12 +3,12 @@ use crate::{
     model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
-        prism_gen::{generate_prism_model, PrismGenConfig},
+        prism_gen::{PrismGenConfig, generate_prism_model},
     },
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
 use std::{
-    sync::{mpsc, Arc},
+    sync::{Arc, mpsc},
     thread,
 };
 
@@ -197,6 +197,8 @@ pub struct VerifyState {
     pub(crate) current_formula: String,
     pub(crate) description: String,
     pub(crate) show_model_text: bool,
+    /// Whether the PRISM model viewer window is open.
+    pub(crate) show_model_window: bool,
     pub(crate) property_enabled: bool,
     /// If true, generate PRISM model from the design graph; otherwise use demo model.
     pub(crate) use_generated_model: bool,
@@ -222,6 +224,7 @@ impl Default for VerifyState {
             current_formula: "P=? [ F \"output_spike\" ]".to_owned(),
             description: "Probability that output neuron spikes".to_owned(),
             show_model_text: false,
+            show_model_window: false,
             property_enabled: true,
             use_generated_model: true,
             generated_model_cache: None,
