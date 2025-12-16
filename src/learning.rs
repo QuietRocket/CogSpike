@@ -291,14 +291,14 @@ fn propagate_shf(
     let incoming: Vec<_> = graph
         .incoming_edges(node_id)
         .iter()
-        .map(|e| (e.id, e.from, e.weight))
+        .map(|e| (e.id, e.from, e.weight, e.is_inhibitory))
         .collect();
 
-    for (edge_id, pred_id, weight) in incoming {
+    for (edge_id, pred_id, weight, is_inhibitory) in incoming {
         // Get predecessor's firing probability (default to 0.5 if unknown)
         let p_pred = *firing_probs.get(&pred_id).unwrap_or(&0.5);
 
-        if weight >= 0.0 {
+        if !is_inhibitory {
             // CASE: Excitatory Input
             // If predecessor is active, strengthen the link (Hebbian-like).
             // If inactive, tell it to become active (propagate SHF).
@@ -375,13 +375,13 @@ fn propagate_snhf(
     let incoming: Vec<_> = graph
         .incoming_edges(node_id)
         .iter()
-        .map(|e| (e.id, e.from, e.weight))
+        .map(|e| (e.id, e.from, e.weight, e.is_inhibitory))
         .collect();
 
-    for (edge_id, pred_id, weight) in incoming {
+    for (edge_id, pred_id, weight, is_inhibitory) in incoming {
         let p_pred = *firing_probs.get(&pred_id).unwrap_or(&0.5);
 
-        if weight >= 0.0 {
+        if !is_inhibitory {
             // CASE: Excitatory Input
             // It's exciting us too much. Weaken the link.
             // If it is very active, tell it to stop (propagate SNHF).

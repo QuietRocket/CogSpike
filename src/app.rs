@@ -8,7 +8,11 @@ use crate::{
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
 use std::{
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
 };
 
@@ -108,6 +112,7 @@ pub struct DesignState {
     pub(crate) last_interaction: Option<[f32; 2]>,
     pub(crate) graph: SnnGraph,
     pub(crate) selected_node: Option<NodeId>,
+    pub(crate) selected_edge: Option<crate::snn::graph::EdgeId>,
     pub(crate) connecting_from: Option<NodeId>,
     #[serde(skip)]
     pub(crate) pending_node_kind: Option<NodeKind>,
@@ -124,6 +129,7 @@ impl Default for DesignState {
             last_interaction: None,
             graph: SnnGraph::demo_layout(),
             selected_node: None,
+            selected_edge: None,
             connecting_from: None,
             pending_node_kind: None,
             drag_anchor: None,
@@ -202,19 +208,34 @@ pub struct TrainingJob {
     result_rx: std::sync::mpsc::Receiver<(TrainingResult, SnnGraph)>,
     /// Latest progress received (for display).
     pub latest_progress: Option<TrainingProgress>,
+    /// Flag to signal the training thread to stop.
+    stop_requested: Arc<AtomicBool>,
 }
 
 impl TrainingJob {
     pub fn new(
         progress_rx: std::sync::mpsc::Receiver<TrainingProgress>,
         result_rx: std::sync::mpsc::Receiver<(TrainingResult, SnnGraph)>,
+        stop_flag: Arc<AtomicBool>,
     ) -> Self {
         Self {
             started_at: std::time::Instant::now(),
             progress_rx,
             result_rx,
             latest_progress: None,
+            stop_requested: stop_flag,
         }
+    }
+
+    /// Request the training thread to stop.
+    pub fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::SeqCst);
+    }
+
+    /// Check if stop has been requested.
+    #[allow(dead_code)]
+    pub fn is_stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst)
     }
 
     /// Poll for any progress updates (non-blocking).
@@ -505,6 +526,10 @@ impl TemplateApp {
         let (progress_tx, progress_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
 
+        // Create stop flag for interrupting training
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_clone = stop_flag.clone();
+
         thread::spawn(move || {
             let targets = collect_learning_targets(&graph);
             if targets.is_empty() {
@@ -516,6 +541,18 @@ impl TemplateApp {
             }
 
             for iteration in 1..=config.max_iterations {
+                // Check if stop was requested
+                if stop_flag_clone.load(Ordering::SeqCst) {
+                    let _ = result_tx.send((
+                        TrainingResult::Stopped {
+                            iterations: iteration,
+                            last_probability: 0.0,
+                        },
+                        graph,
+                    ));
+                    return;
+                }
+
                 // Generate PRISM model from current graph
                 let model = if use_generated_model {
                     let prism_config = PrismGenConfig::default();
@@ -585,7 +622,7 @@ impl TemplateApp {
             ));
         });
 
-        self.verify.training_job = Some(TrainingJob::new(progress_rx, result_rx));
+        self.verify.training_job = Some(TrainingJob::new(progress_rx, result_rx, stop_flag));
         self.verify.last_training_result = None;
         self.push_log(format!(
             "Started automated training (target={:.2}, max_iter={})",

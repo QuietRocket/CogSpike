@@ -3,7 +3,7 @@
 //! Generates DTMC (Discrete-Time Markov Chain) models from [`SnnGraph`] for
 //! probabilistic model checking with PRISM.
 
-use crate::snn::graph::{Node, NodeKind, NeuronParams, SnnGraph};
+use crate::snn::graph::{NeuronParams, Node, NodeKind, SnnGraph};
 use std::fmt::Write;
 
 /// Configuration for PRISM model generation.
@@ -33,7 +33,13 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 
     // Header
     writeln!(out, "// Auto-generated PRISM model from CogSpike").ok();
-    writeln!(out, "// Neurons: {}, Edges: {}", graph.nodes.len(), graph.edges.len()).ok();
+    writeln!(
+        out,
+        "// Neurons: {}, Edges: {}",
+        graph.nodes.len(),
+        graph.edges.len()
+    )
+    .ok();
     writeln!(out, "dtmc\n").ok();
 
     // Global constants from first neuron (or defaults)
@@ -94,8 +100,18 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 fn write_global_constants(out: &mut String, params: &NeuronParams, config: &PrismGenConfig) {
     writeln!(out, "// Global neuron parameters").ok();
     writeln!(out, "const int P_rth = {};", (params.p_rth * 100.0) as i32).ok();
-    writeln!(out, "const int P_rest = {};", (params.p_rest * 100.0) as i32).ok();
-    writeln!(out, "const int P_reset = {};", (params.p_reset * 100.0) as i32).ok();
+    writeln!(
+        out,
+        "const int P_rest = {};",
+        (params.p_rest * 100.0) as i32
+    )
+    .ok();
+    writeln!(
+        out,
+        "const int P_reset = {};",
+        (params.p_reset * 100.0) as i32
+    )
+    .ok();
     writeln!(out, "const double r = {};", params.leak_r).ok();
     writeln!(out, "const int ARP = {};", params.arp).ok();
     writeln!(out, "const int RRP = {};", params.rrp).ok();
@@ -128,6 +144,8 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
         }
 
         let is_input = from_node.map_or(false, |n| n.kind == NodeKind::Input);
+        // Use signed_weight() to get effective weight (negative for inhibitory)
+        let effective_weight = edge.signed_weight();
 
         if is_input {
             // Input to neuron weight
@@ -136,7 +154,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
                 "const int weight_in{}_{} = {};",
                 edge.from.0,
                 edge.to.0,
-                (edge.weight * 100.0) as i32
+                (effective_weight * 100.0) as i32
             )
             .ok();
         } else {
@@ -146,7 +164,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
                 "const int weight_n{}_{} = {};",
                 edge.from.0,
                 edge.to.0,
-                (edge.weight * 100.0) as i32
+                (effective_weight * 100.0) as i32
             )
             .ok();
         }
@@ -168,7 +186,12 @@ fn write_transfer_formulas(out: &mut String, graph: &SnnGraph) {
 
         if from_node.map_or(false, |n| n.kind != NodeKind::Input) {
             // Neuron-to-neuron edges need transfer variables
-            writeln!(out, "// z{}_{} defined in transfer module", edge.from.0, edge.to.0).ok();
+            writeln!(
+                out,
+                "// z{}_{} defined in transfer module",
+                edge.from.0, edge.to.0
+            )
+            .ok();
         }
     }
 }
@@ -211,7 +234,10 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
             let from_node = graph.node(edge.from);
             if from_node.map_or(false, |n| n.kind == NodeKind::Input) {
                 // Input contribution
-                terms.push(format!("weight_in{}_{} * x{}", edge.from.0, edge.to.0, edge.from.0));
+                terms.push(format!(
+                    "weight_in{}_{} * x{}",
+                    edge.from.0, edge.to.0, edge.from.0
+                ));
             } else {
                 // Neuron spike contribution (via transfer variable)
                 terms.push(format!(
@@ -347,7 +373,11 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     writeln!(out).ok();
 
     // Relative refractory period
-    writeln!(out, "  // Relative refractory period (alpha-scaled probabilities)").ok();
+    writeln!(
+        out,
+        "  // Relative refractory period (alpha-scaled probabilities)"
+    )
+    .ok();
     writeln!(
         out,
         "  [spike{}] s{} = 2 & y{} = 1 & rref{} > 0 -> (p{}' = P_reset) & (aref{}' = ARP) & (y{}' = 0) & (rref{}' = 0) & (s{}' = 1);",
@@ -394,7 +424,9 @@ fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
         let to_node = graph.node(edge.to);
 
         // Skip edges involving Supervisor nodes or Input nodes
-        if from_node.map_or(true, |n| n.kind == NodeKind::Input || n.kind == NodeKind::Supervisor) {
+        if from_node.map_or(true, |n| {
+            n.kind == NodeKind::Input || n.kind == NodeKind::Supervisor
+        }) {
             continue;
         }
         if to_node.map_or(false, |n| n.kind == NodeKind::Supervisor) {
@@ -526,7 +558,12 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if node.kind == NodeKind::Input {
             continue;
         }
-        writeln!(out, "P>=1 [ G ((s{} = 1) => (y{} = 0)) ]", node.id.0, node.id.0).ok();
+        writeln!(
+            out,
+            "P>=1 [ G ((s{} = 1) => (y{} = 0)) ]",
+            node.id.0, node.id.0
+        )
+        .ok();
     }
     writeln!(out).ok();
 

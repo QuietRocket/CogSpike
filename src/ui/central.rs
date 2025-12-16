@@ -4,7 +4,7 @@ use crate::{
     app::{DEMO_PRISM_MODEL, Mode, SimTab, TemplateApp},
     learning::{collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
-        graph::{NodeId, NodeKind, SnnGraph},
+        graph::{NodeId, NodeKind},
         prism_gen::{PrismGenConfig, generate_prism_model},
     },
 };
@@ -70,17 +70,7 @@ fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
     handle_canvas_clicks(app, rect, &response);
     handle_keyboard_shortcuts(app, ui);
 
-    {
-        let graph = &app.design.graph;
-        draw_edges(
-            graph,
-            &painter,
-            rect,
-            app.design.selected_node,
-            app.design.connecting_from,
-            pointer_pos,
-        );
-    }
+    draw_edges_interactive(app, ui, &painter, rect, pointer_pos);
 
     draw_nodes(app, ui, &painter, rect);
 }
@@ -120,6 +110,7 @@ fn handle_canvas_clicks(app: &mut TemplateApp, rect: egui::Rect, response: &egui
                 add_node_at(app, rect, pos, kind);
             } else {
                 app.design.selected_node = None;
+                app.design.selected_edge = None;
                 app.design.connecting_from = None;
             }
             app.record_canvas_interaction(pos);
@@ -144,41 +135,104 @@ fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui) {
     }
 }
 
-fn draw_edges(
-    graph: &SnnGraph,
+/// Draw edges with interactive clicking support for edge selection.
+/// Also positions weight label offset from the edge line for readability.
+fn draw_edges_interactive(
+    app: &mut TemplateApp,
+    ui: &mut egui::Ui,
     painter: &egui::Painter,
     rect: egui::Rect,
-    selected: Option<NodeId>,
-    connecting_from: Option<NodeId>,
     pointer_pos: Option<egui::Pos2>,
 ) {
-    for edge in &graph.edges {
-        let Some(from_pos) = graph.position_of(edge.from) else {
-            continue;
-        };
-        let Some(to_pos) = graph.position_of(edge.to) else {
-            continue;
-        };
-        let from_screen = graph_to_screen(rect, from_pos);
-        let to_screen = graph_to_screen(rect, to_pos);
+    // Collect edge data first to avoid borrowing issues
+    let edge_data: Vec<_> = app
+        .design
+        .graph
+        .edges
+        .iter()
+        .filter_map(|edge| {
+            let from_pos = app.design.graph.position_of(edge.from)?;
+            let to_pos = app.design.graph.position_of(edge.to)?;
+            Some((
+                edge.id,
+                edge.from,
+                edge.to,
+                edge.weight,
+                edge.is_inhibitory,
+                from_pos,
+                to_pos,
+            ))
+        })
+        .collect();
 
-        let mut color = egui::Color32::from_gray(60);
-        if selected == Some(edge.from) || selected == Some(edge.to) {
+    let selected_node = app.design.selected_node;
+    let selected_edge = app.design.selected_edge;
+
+    for (edge_id, from_node, to_node, weight, is_inhibitory, from_pos, to_pos) in &edge_data {
+        let from_screen = graph_to_screen(rect, *from_pos);
+        let to_screen = graph_to_screen(rect, *to_pos);
+
+        // Determine edge color based on selection and inhibitory state
+        let mut color = if *is_inhibitory {
+            egui::Color32::from_rgb(180, 80, 80) // Red-ish for inhibitory
+        } else {
+            egui::Color32::from_gray(60) // Default gray for excitatory
+        };
+
+        if selected_edge == Some(*edge_id) {
+            color = egui::Color32::from_rgb(255, 180, 0); // Orange for selected edge
+        } else if selected_node == Some(*from_node) || selected_node == Some(*to_node) {
             color = egui::Color32::from_rgb(20, 120, 200);
         }
+
         draw_directed_edge(painter, from_screen, to_screen, color);
-        let label_pos = from_screen.lerp(to_screen, 0.5);
-        painter.text(
-            label_pos,
-            egui::Align2::CENTER_CENTER,
-            format!("{:+.2}", edge.weight),
-            egui::FontId::proportional(12.0),
-            egui::Color32::from_gray(30),
+
+        // Calculate perpendicular offset for label position (Feature 3)
+        let dir = to_screen - from_screen;
+        let len = dir.length();
+        if len > f32::EPSILON {
+            let unit = dir / len;
+            let perp = egui::vec2(-unit.y, unit.x); // Perpendicular vector
+            let offset = perp * 14.0; // 14px offset from edge line
+            let label_pos = from_screen.lerp(to_screen, 0.5) + offset;
+
+            painter.text(
+                label_pos,
+                egui::Align2::CENTER_CENTER,
+                format!("{:+.2}", weight),
+                egui::FontId::proportional(12.0),
+                egui::Color32::from_gray(30),
+            );
+        }
+
+        // Create an invisible hit-test rectangle along the edge for clicking
+        let mid_point = from_screen.lerp(to_screen, 0.5);
+        let hit_size = 20.0; // Hit area size
+        let hit_rect = egui::Rect::from_center_size(mid_point, egui::vec2(hit_size, hit_size));
+        let edge_response = ui.interact(
+            hit_rect,
+            ui.id().with(("edge", edge_id.0)),
+            egui::Sense::click(),
         );
+
+        if edge_response.clicked() {
+            app.design.selected_edge = Some(*edge_id);
+            app.design.selected_node = None; // Deselect node when selecting edge
+        }
+
+        // Show selection highlight
+        if selected_edge == Some(*edge_id) {
+            painter.circle_stroke(
+                mid_point,
+                10.0,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 180, 0)),
+            );
+        }
     }
 
-    if let (Some(from), Some(pointer)) = (connecting_from, pointer_pos) {
-        if let Some(start) = graph.position_of(from) {
+    // Draw connection preview line
+    if let (Some(from), Some(pointer)) = (app.design.connecting_from, pointer_pos) {
+        if let Some(start) = app.design.graph.position_of(from) {
             let start = graph_to_screen(rect, start);
             painter.line_segment(
                 [start, pointer],
@@ -606,7 +660,11 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         ui.label(format!("Probability: {:.6}", prob));
                     }
                     ui.collapsing("Raw output", |ui| {
-                        ui.monospace(res.raw_output.trim());
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0)
+                            .show(ui, |ui| {
+                                ui.monospace(res.raw_output.trim());
+                            });
                     });
                 });
             }
@@ -740,6 +798,12 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
 
             if training_running {
+                if ui.button("⏹ Stop").clicked() {
+                    if let Some(job) = &app.verify.training_job {
+                        job.request_stop();
+                        app.push_log("Stop requested for training...".to_owned());
+                    }
+                }
                 ui.spinner();
                 if let Some(job) = &app.verify.training_job {
                     let elapsed = job.started_at.elapsed();

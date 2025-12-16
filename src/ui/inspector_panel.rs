@@ -131,6 +131,69 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             ui.label("Selected node no longer exists");
         }
     }
+
+    // Edge inspector section
+    if let Some(edge_id) = app.design.selected_edge {
+        ui.separator();
+        ui.heading("Selected edge");
+
+        // First get edge info immutably to avoid borrow conflicts
+        let edge_info = app.design.graph.edge(edge_id).map(|e| {
+            let from_node = e.from;
+            let to_node = e.to;
+            let from_label = app
+                .design
+                .graph
+                .node(from_node)
+                .map(|n| n.label.clone())
+                .unwrap_or_else(|| format!("Node {}", from_node.0));
+            let to_label = app
+                .design
+                .graph
+                .node(to_node)
+                .map(|n| n.label.clone())
+                .unwrap_or_else(|| format!("Node {}", to_node.0));
+            (from_label, to_label)
+        });
+
+        if let Some((from_label, to_label)) = edge_info {
+            ui.label(format!("Edge {} → {}", from_label, to_label));
+            ui.label(format!("ID: {}", edge_id.0));
+
+            // Now borrow mutably for editing
+            if let Some(edge) = app.design.graph.edge_mut(edge_id) {
+                ui.horizontal(|ui| {
+                    ui.label("Weight");
+                    ui.add(
+                        egui::DragValue::new(&mut edge.weight)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut edge.is_inhibitory, "Inhibitory");
+                    if edge.is_inhibitory {
+                        ui.label("(suppresses firing)");
+                    } else {
+                        ui.label("(excitatory)");
+                    }
+                });
+            }
+
+            if ui.button("Deselect edge").clicked() {
+                app.design.selected_edge = None;
+            }
+
+            if ui.button("🗑 Delete edge").clicked() {
+                app.design.graph.remove_edge(edge_id);
+                app.design.selected_edge = None;
+            }
+        } else {
+            app.design.selected_edge = None;
+            ui.label("Selected edge no longer exists");
+        }
+    }
 }
 
 fn simulate_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
