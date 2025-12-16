@@ -1,5 +1,5 @@
 use crate::{
-    learning::{self, LearningConfig, LearningState},
+    learning::{LearningConfig, LearningState},
     model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
@@ -193,6 +193,7 @@ impl Default for SimulateState {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+#[allow(dead_code)]
 pub struct VerifyState {
     pub(crate) current_formula: String,
     pub(crate) description: String,

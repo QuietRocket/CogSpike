@@ -2,9 +2,7 @@ use std::time::Duration;
 
 use crate::{
     app::{DEMO_PRISM_MODEL, Mode, SimTab, TemplateApp},
-    learning::{
-        self, collect_learning_targets, estimate_firing_probabilities, run_learning_iteration,
-    },
+    learning::{collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
         prism_gen::{PrismGenConfig, generate_prism_model},
