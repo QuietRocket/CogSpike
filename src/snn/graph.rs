@@ -10,29 +10,18 @@ pub struct EdgeId(pub u32);
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NodeKind {
     Neuron,
-    Population,
-    Input,
-    Output,
 }
 
 impl NodeKind {
     pub fn label(self) -> &'static str {
         match self {
             NodeKind::Neuron => "Neuron",
-            NodeKind::Population => "Population",
-            NodeKind::Input => "Input",
-            NodeKind::Output => "Output",
         }
     }
 
     /// Returns all node kinds available for manual creation.
     pub const fn palette() -> &'static [NodeKind] {
-        &[
-            NodeKind::Neuron,
-            NodeKind::Population,
-            NodeKind::Input,
-            NodeKind::Output,
-        ]
+        &[NodeKind::Neuron]
     }
 }
 
@@ -246,9 +235,19 @@ impl SnnGraph {
         self.edges.iter().filter(|e| e.from == id).collect()
     }
 
-    /// Check if a node is an input generator (ignores learning advice).
+    /// Check if node is topologically an input (no incoming edges).
+    pub fn is_input(&self, id: NodeId) -> bool {
+        self.node(id).is_some() && !self.edges.iter().any(|e| e.to == id)
+    }
+
+    /// Check if node is topologically an output (no outgoing edges).
+    pub fn is_output(&self, id: NodeId) -> bool {
+        self.node(id).is_some() && !self.edges.iter().any(|e| e.from == id)
+    }
+
+    /// Check if a node is an input generator (topologically an input).
     pub fn is_input_generator(&self, id: NodeId) -> bool {
-        self.node(id).map_or(false, |n| n.kind == NodeKind::Input)
+        self.is_input(id)
     }
 
     /// Returns all nodes that are learning targets (have target_probability set).
@@ -278,10 +277,10 @@ impl SnnGraph {
 
     pub fn demo_layout() -> Self {
         let mut graph = Self::default();
-        let input = graph.add_node("Input", NodeKind::Input, [80.0, 120.0]);
+        let input = graph.add_node("Input", NodeKind::Neuron, [80.0, 120.0]);
         let neuron_a = graph.add_node("Neuron A", NodeKind::Neuron, [220.0, 140.0]);
         let neuron_b = graph.add_node("Neuron B", NodeKind::Neuron, [360.0, 110.0]);
-        let output = graph.add_node("Output", NodeKind::Output, [520.0, 200.0]);
+        let output = graph.add_node("Output", NodeKind::Neuron, [520.0, 200.0]);
 
         graph.add_edge(input, neuron_a, Self::DEFAULT_WEIGHT);
         graph.add_edge(neuron_a, neuron_b, Self::DEFAULT_WEIGHT);

@@ -63,7 +63,7 @@ fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
     );
 
     if app.design.show_grid {
-        draw_grid(&painter, rect, GRID_SPACING);
+        draw_grid(&painter, rect, GRID_SPACING, ui.visuals());
     }
 
     let pointer_pos = response.interact_pointer_pos();
@@ -75,8 +75,10 @@ fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
     draw_nodes(app, ui, &painter, rect);
 }
 
-fn draw_grid(painter: &egui::Painter, rect: egui::Rect, spacing: f32) {
-    let color = egui::Color32::from_rgba_unmultiplied(220, 220, 220, 80);
+fn draw_grid(painter: &egui::Painter, rect: egui::Rect, spacing: f32, visuals: &egui::Visuals) {
+    // Use a subtle grid color that adapts to theme
+    let base = visuals.text_color();
+    let color = egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 30);
     let stroke = egui::Stroke::new(1.0, color);
     let mut x = rect.left();
     while x < rect.right() {
@@ -144,6 +146,7 @@ fn draw_edges_interactive(
     rect: egui::Rect,
     pointer_pos: Option<egui::Pos2>,
 ) {
+    let text_color = ui.visuals().text_color();
     // Collect edge data first to avoid borrowing issues
     let edge_data: Vec<_> = app
         .design
@@ -174,9 +177,15 @@ fn draw_edges_interactive(
 
         // Determine edge color based on selection and inhibitory state
         let mut color = if *is_inhibitory {
-            egui::Color32::from_rgb(180, 80, 80) // Red-ish for inhibitory
+            egui::Color32::from_rgb(200, 80, 80) // Red-ish for inhibitory
         } else {
-            egui::Color32::from_gray(60) // Default gray for excitatory
+            // Use a visible gray that adapts to theme
+            egui::Color32::from_rgba_unmultiplied(
+                text_color.r(),
+                text_color.g(),
+                text_color.b(),
+                180,
+            )
         };
 
         if selected_edge == Some(*edge_id) {
@@ -201,7 +210,7 @@ fn draw_edges_interactive(
                 egui::Align2::CENTER_CENTER,
                 format!("{:+.2}", weight),
                 egui::FontId::proportional(12.0),
-                egui::Color32::from_gray(30),
+                text_color,
             );
         }
 
@@ -276,6 +285,7 @@ fn draw_directed_edge(
 fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter, rect: egui::Rect) {
     let shift_down = ui.input(|i| i.modifiers.shift);
     let pointer_delta = ui.input(|i| i.pointer.delta());
+    let text_color = ui.visuals().text_color();
     let node_ids: Vec<NodeId> = app.design.graph.nodes.iter().map(|n| n.id).collect();
 
     for node_id in node_ids {
@@ -344,7 +354,7 @@ fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter,
             }
         }
 
-        let fill = node_color(node_snapshot.kind);
+        let fill = node_color(&app.design.graph, node_id, node_snapshot.kind);
         painter.circle_filled(pos, NODE_RADIUS, fill);
         if app.design.selected_node == Some(node_id) || app.design.connecting_from == Some(node_id)
         {
@@ -364,17 +374,19 @@ fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter,
             egui::Align2::CENTER_TOP,
             node_snapshot.label,
             egui::FontId::proportional(13.0),
-            egui::Color32::from_gray(30),
+            text_color,
         );
     }
 }
 
-fn node_color(kind: NodeKind) -> egui::Color32 {
-    match kind {
-        NodeKind::Neuron => egui::Color32::from_rgb(120, 180, 255),
-        NodeKind::Population => egui::Color32::from_rgb(180, 255, 120),
-        NodeKind::Input => egui::Color32::from_rgb(255, 200, 120),
-        NodeKind::Output => egui::Color32::from_rgb(200, 200, 255),
+fn node_color(graph: &crate::snn::graph::SnnGraph, id: NodeId, _kind: NodeKind) -> egui::Color32 {
+    // Use topology-based coloring: inputs are roots, outputs are leaves
+    if graph.is_input(id) {
+        egui::Color32::from_rgb(255, 200, 120) // Orange for inputs
+    } else if graph.is_output(id) {
+        egui::Color32::from_rgb(200, 200, 255) // Purple for outputs
+    } else {
+        egui::Color32::from_rgb(120, 180, 255) // Blue for regular neurons
     }
 }
 

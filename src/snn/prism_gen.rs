@@ -3,7 +3,7 @@
 //! Generates DTMC (Discrete-Time Markov Chain) models from [`SnnGraph`] for
 //! probabilistic model checking with PRISM.
 
-use crate::snn::graph::{NeuronParams, Node, NodeKind, SnnGraph};
+use crate::snn::graph::{NeuronParams, Node, SnnGraph};
 use std::fmt::Write;
 
 /// Configuration for PRISM model generation.
@@ -75,7 +75,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 
     // Neuron modules
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue; // Inputs handled separately
         }
         write_neuron_module(&mut out, node, graph, config);
@@ -133,9 +133,7 @@ fn write_threshold_formulas(out: &mut String, params: &NeuronParams) {
 fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Synaptic weights").ok();
     for edge in &graph.edges {
-        let from_node = graph.node(edge.from);
-
-        let is_input = from_node.map_or(false, |n| n.kind == NodeKind::Input);
+        let is_input = graph.is_input(edge.from);
         // Use signed_weight() to get effective weight (negative for inhibitory)
         let effective_weight = edge.signed_weight();
 
@@ -166,9 +164,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
 fn write_transfer_formulas(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Transfer variables for spike propagation").ok();
     for edge in &graph.edges {
-        let from_node = graph.node(edge.from);
-
-        if from_node.map_or(false, |n| n.kind != NodeKind::Input) {
+        if !graph.is_input(edge.from) {
             // Neuron-to-neuron edges need transfer variables
             writeln!(
                 out,
@@ -185,7 +181,7 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
 
     for node in &graph.nodes {
         // Skip Input nodes
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
 
@@ -206,8 +202,7 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
         let mut terms = Vec::new();
 
         for edge in incoming {
-            let from_node = graph.node(edge.from);
-            if from_node.map_or(false, |n| n.kind == NodeKind::Input) {
+            if graph.is_input(edge.from) {
                 // Input contribution
                 terms.push(format!(
                     "weight_in{}_{} * x{}",
@@ -241,7 +236,7 @@ fn write_input_module(out: &mut String, graph: &SnnGraph) {
     let inputs: Vec<_> = graph
         .nodes
         .iter()
-        .filter(|n| n.kind == NodeKind::Input)
+        .filter(|n| graph.is_input(n.id))
         .collect();
 
     if inputs.is_empty() {
@@ -395,10 +390,8 @@ fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Synapse transfer modules (spike propagation)").ok();
 
     for edge in &graph.edges {
-        let from_node = graph.node(edge.from);
-
         // Skip edges from Input nodes (they don't need transfer modules)
-        if from_node.map_or(true, |n| n.kind == NodeKind::Input) {
+        if graph.is_input(edge.from) {
             continue;
         }
 
@@ -426,7 +419,7 @@ fn write_rewards(out: &mut String, graph: &SnnGraph) {
 
     for node in &graph.nodes {
         // Skip Input nodes - they don't have neuron modules
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "rewards \"spike{}_count\"", node.id.0).ok();
@@ -441,7 +434,7 @@ fn write_labels(out: &mut String, graph: &SnnGraph) {
 
     for node in &graph.nodes {
         // Skip Input nodes - they don't have neuron modules
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "label \"spike{}\" = (y{} = 1);", node.id.0, node.id.0).ok();
@@ -476,7 +469,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
 
     // Labels
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "label \"spike{}\" = (y{} = 1);", node.id.0, node.id.0).ok();
@@ -486,7 +479,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     // Basic reachability
     writeln!(out, "// Reachability: Can neuron spike?").ok();
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "P=? [ F \"spike{}\" ]", node.id.0).ok();
@@ -496,7 +489,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     // Bounded reachability
     writeln!(out, "// Bounded reachability: Spike within T steps").ok();
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "P=? [ F<=T \"spike{}\" ]", node.id.0).ok();
@@ -506,7 +499,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     // Liveness / persistence
     writeln!(out, "// Persistence: Neuron keeps spiking").ok();
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "P>=1 [ G (F \"spike{}\") ]", node.id.0).ok();
@@ -516,7 +509,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     // Safety: refractory correctness
     writeln!(out, "// Safety: No spikes during absolute refractory").ok();
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(
@@ -531,7 +524,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     // Reward queries
     writeln!(out, "// Cumulative spike count rewards").ok();
     for node in &graph.nodes {
-        if node.kind == NodeKind::Input {
+        if graph.is_input(node.id) {
             continue;
         }
         writeln!(out, "R{{\"spike{}_count\"}}=? [ C<=T ]", node.id.0).ok();

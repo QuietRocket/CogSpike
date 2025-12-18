@@ -3,7 +3,7 @@
 //! Implements the SHF (Should Have Fired) and SNHF (Should Not Have Fired)
 //! algorithms adapted from the naco20.pdf paper for learning synaptic weights.
 
-use crate::snn::graph::{EdgeId, NodeId, NodeKind, SnnGraph};
+use crate::snn::graph::{EdgeId, NodeId, SnnGraph};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -442,16 +442,16 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
     let mut probs = HashMap::new();
 
     for node in &graph.nodes {
-        let prob = match node.kind {
-            NodeKind::Input => 1.0, // Inputs always fire
-            _ => {
-                // Estimate based on parameters
-                // Higher leak_r means potential builds up more (higher firing prob)
-                // This is a rough heuristic
-                let base = 0.5;
-                let leak_factor = node.params.leak_r as f64;
-                (base * leak_factor).clamp(0.0, 1.0)
-            }
+        // Input neurons (no incoming edges) always fire
+        let prob = if graph.is_input(node.id) {
+            1.0
+        } else {
+            // Estimate based on parameters
+            // Higher leak_r means potential builds up more (higher firing prob)
+            // This is a rough heuristic
+            let base = 0.5;
+            let leak_factor = node.params.leak_r as f64;
+            (base * leak_factor).clamp(0.0, 1.0)
         };
         probs.insert(node.id, prob);
     }
@@ -459,7 +459,7 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
     probs
 }
 
-/// Collect output neurons for learning (nodes with target_probability set, or Output nodes).
+/// Collect output neurons for learning (nodes with target_probability set, or topological outputs).
 pub fn collect_learning_targets(graph: &SnnGraph) -> Vec<NodeId> {
     let mut targets = Vec::new();
 
@@ -470,18 +470,7 @@ pub fn collect_learning_targets(graph: &SnnGraph) -> Vec<NodeId> {
         }
     }
 
-    // If no explicit targets, use output neurons
-    if targets.is_empty() {
-        targets.extend(
-            graph
-                .nodes
-                .iter()
-                .filter(|n| n.kind == NodeKind::Output)
-                .map(|n| n.id),
-        );
-    }
-
-    // If still empty, use automatically detected outputs
+    // If no explicit targets, use automatically detected outputs (leaf nodes)
     if targets.is_empty() {
         targets.extend(graph.output_neurons());
     }

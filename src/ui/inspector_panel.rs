@@ -34,6 +34,10 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
     if let Some(node_id) = app.design.selected_node {
         ui.separator();
         ui.heading("Selected node");
+
+        // Check topology before mutable borrow
+        let is_output_node = app.design.graph.is_output(node_id);
+
         if let Some(node) = app.design.graph.node_mut(node_id) {
             ui.label(format!("ID {}", node_id.0));
             ui.horizontal(|ui| {
@@ -108,8 +112,8 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     });
             });
 
-            // Learning target settings (for Output nodes)
-            if node.kind == crate::snn::graph::NodeKind::Output {
+            // Learning target settings (for output nodes - nodes with no outgoing edges)
+            if is_output_node {
                 ui.separator();
                 ui.heading("Learning Target");
 
@@ -249,7 +253,7 @@ fn verify_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             .graph
             .nodes
             .iter()
-            .filter(|n| n.kind != crate::snn::graph::NodeKind::Input)
+            .filter(|n| !app.design.graph.is_input(n.id))
             .count();
         ui.label(format!("Generating from {} neurons", n_neurons));
     }
