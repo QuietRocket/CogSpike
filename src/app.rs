@@ -265,6 +265,8 @@ pub struct VerifyState {
     pub(crate) show_model_text: bool,
     /// Whether the PRISM model viewer window is open.
     pub(crate) show_model_window: bool,
+    /// Whether the PCTL properties viewer window is open.
+    pub(crate) show_properties_window: bool,
     pub(crate) property_enabled: bool,
     /// If true, generate PRISM model from the design graph; otherwise use demo model.
     pub(crate) use_generated_model: bool,
@@ -296,6 +298,7 @@ impl Default for VerifyState {
             description: "Probability that output neuron spikes".to_owned(),
             show_model_text: false,
             show_model_window: false,
+            show_properties_window: false,
             property_enabled: true,
             use_generated_model: true,
             generated_model_cache: None,

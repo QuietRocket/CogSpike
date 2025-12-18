@@ -5,7 +5,7 @@ use crate::{
     learning::{collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
         graph::{NodeId, NodeKind},
-        prism_gen::{PrismGenConfig, generate_prism_model},
+        prism_gen::{PrismGenConfig, generate_pctl_properties, generate_prism_model},
     },
 };
 
@@ -563,6 +563,9 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         if ui.button("📄 View Model").clicked() {
             app.verify.show_model_window = true;
         }
+        if ui.button("📋 View Properties").clicked() {
+            app.verify.show_properties_window = true;
+        }
     });
     ui.separator();
 
@@ -603,6 +606,51 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 });
         });
     app.verify.show_model_window = show_model_window;
+
+    // PCTL Properties Viewer Window
+    let mut show_properties_window = app.verify.show_properties_window;
+    egui::Window::new("PCTL Properties Viewer")
+        .open(&mut show_properties_window)
+        .default_size(egui::vec2(550.0, 400.0))
+        .resizable(true)
+        .scroll([true, true])
+        .show(ctx, |ui| {
+            // Generate PCTL properties from the graph
+            let properties_text = generate_pctl_properties(&app.design.graph);
+
+            ui.horizontal(|ui| {
+                if ui.button("📋 Copy to Clipboard").clicked() {
+                    ctx.copy_text(properties_text.clone());
+                    app.push_log("PCTL properties copied to clipboard");
+                }
+                ui.separator();
+                ui.label(format!("{} lines", properties_text.lines().count()));
+            });
+            ui.separator();
+
+            ui.label("These are the auto-generated PCTL properties written to .pctl file:");
+            ui.add_space(4.0);
+
+            // Also show the current formula being used
+            ui.group(|ui| {
+                ui.label("Current formula (from editor):");
+                ui.monospace(&app.verify.current_formula);
+            });
+            ui.add_space(8.0);
+
+            ui.label("Generated property templates:");
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut properties_text.as_str())
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(20),
+                    );
+                });
+        });
+    app.verify.show_properties_window = show_properties_window;
 
     ui.horizontal(|ui| {
         ui.label("Status:");
