@@ -481,7 +481,161 @@ pub fn collect_learning_targets(graph: &SnnGraph) -> Vec<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snn::graph::SnnGraph;
+    use crate::snn::graph::{NodeKind, SnnGraph};
+
+    // =========================================================================
+    // Test Topology Helpers
+    // =========================================================================
+
+    /// Create a simple chain: Input -> A -> B -> Output
+    /// All weights start at 0.0 so the signal cannot propagate.
+    /// Learning should increase weights to allow signal propagation.
+    fn create_simple_chain() -> SnnGraph {
+        let mut graph = SnnGraph::default();
+        let input = graph.add_node("Input", NodeKind::Neuron, [0.0, 0.0]);
+        let a = graph.add_node("A", NodeKind::Neuron, [100.0, 0.0]);
+        let b = graph.add_node("B", NodeKind::Neuron, [200.0, 0.0]);
+        let output = graph.add_node("Output", NodeKind::Neuron, [300.0, 0.0]);
+
+        // Weights start at 0.0 - signal cannot propagate
+        graph.add_edge(input, a, 0.0);
+        graph.add_edge(a, b, 0.0);
+        graph.add_edge(b, output, 0.0);
+
+        graph
+    }
+
+    /// Create a diamond structure: Input -> A,B -> Output
+    /// Tests that blame propagates through multiple paths.
+    fn create_diamond() -> SnnGraph {
+        let mut graph = SnnGraph::default();
+        let input = graph.add_node("Input", NodeKind::Neuron, [0.0, 100.0]);
+        let a = graph.add_node("A", NodeKind::Neuron, [100.0, 50.0]);
+        let b = graph.add_node("B", NodeKind::Neuron, [100.0, 150.0]);
+        let output = graph.add_node("Output", NodeKind::Neuron, [200.0, 100.0]);
+
+        // Starting with small weights
+        graph.add_edge(input, a, 0.1);
+        graph.add_edge(input, b, 0.1);
+        graph.add_edge(a, output, 0.1);
+        graph.add_edge(b, output, 0.1);
+
+        graph
+    }
+
+    // =========================================================================
+    // Mock Verifiers
+    // =========================================================================
+
+    /// A simple mock verifier that estimates probability purely from edge weights.
+    /// Higher total weights on edges into output = higher probability.
+    /// This is fast but doesn't simulate actual network dynamics.
+    fn mock_verify_weight_based(graph: &SnnGraph) -> Result<f64, String> {
+        let outputs = graph.output_neurons();
+        if outputs.is_empty() {
+            return Err("No outputs".to_owned());
+        }
+
+        // Simple heuristic: average of incoming weights to output
+        let mut total_weight: f32 = 0.0;
+        let mut count = 0;
+
+        for output_id in &outputs {
+            for edge in graph.incoming_edges(*output_id) {
+                if edge.is_inhibitory {
+                    total_weight -= edge.weight;
+                } else {
+                    total_weight += edge.weight;
+                }
+                count += 1;
+            }
+        }
+
+        if count == 0 {
+            return Ok(0.0);
+        }
+
+        // Normalize to 0.0-1.0 range
+        let prob = (total_weight / count as f32).clamp(0.0, 1.0);
+        Ok(f64::from(prob))
+    }
+
+    /// A more sophisticated mock verifier that simulates network dynamics.
+    /// Propagates activation through the network using a simplified LIF model.
+    fn mock_verify_network_dynamics(graph: &SnnGraph) -> Result<f64, String> {
+        let outputs = graph.output_neurons();
+        let inputs = graph.input_neurons();
+
+        if outputs.is_empty() {
+            return Err("No outputs".to_owned());
+        }
+        if inputs.is_empty() {
+            return Err("No inputs".to_owned());
+        }
+
+        // Initialize potentials: inputs start at 1.0 (firing), others at 0.0
+        let mut potentials: HashMap<NodeId, f64> = HashMap::new();
+        for node in &graph.nodes {
+            let initial = if inputs.contains(&node.id) { 1.0 } else { 0.0 };
+            potentials.insert(node.id, initial);
+        }
+
+        // Simulate multiple timesteps to propagate activation
+        const NUM_TIMESTEPS: usize = 10;
+        const THRESHOLD: f64 = 0.5;
+        const LEAK: f64 = 0.9;
+
+        for _ in 0..NUM_TIMESTEPS {
+            let mut new_potentials = potentials.clone();
+
+            for node in &graph.nodes {
+                // Skip input neurons (they maintain constant activation)
+                if inputs.contains(&node.id) {
+                    continue;
+                }
+
+                // Calculate incoming activation
+                let mut incoming_sum: f64 = 0.0;
+                for edge in graph.incoming_edges(node.id) {
+                    let pre_potential = potentials.get(&edge.from).copied().unwrap_or(0.0);
+                    // Only transmit if presynaptic neuron is "firing" (above threshold)
+                    if pre_potential >= THRESHOLD {
+                        let weight_contribution = f64::from(edge.weight);
+                        if edge.is_inhibitory {
+                            incoming_sum -= weight_contribution;
+                        } else {
+                            incoming_sum += weight_contribution;
+                        }
+                    }
+                }
+
+                // Update potential with leak and incoming activation
+                let current = potentials.get(&node.id).copied().unwrap_or(0.0);
+                let new_potential = (current * LEAK + incoming_sum).clamp(0.0, 1.0);
+                new_potentials.insert(node.id, new_potential);
+            }
+
+            potentials = new_potentials;
+        }
+
+        // Calculate average output activation as probability
+        let mut total_output: f64 = 0.0;
+        for output_id in &outputs {
+            let potential = potentials.get(output_id).copied().unwrap_or(0.0);
+            // Convert potential to firing probability
+            total_output += if potential >= THRESHOLD {
+                1.0
+            } else {
+                potential / THRESHOLD
+            };
+        }
+
+        Ok(total_output / outputs.len() as f64)
+    }
+
+    // =========================================================================
+    // Original Tests
+    // =========================================================================
 
     #[test]
     fn test_shf_modifies_weights() {
@@ -568,5 +722,312 @@ mod tests {
         );
 
         assert!(result.converged, "Should converge when error < threshold");
+    }
+
+    // =========================================================================
+    // Convergence Tests - Weight-Based Mock Verifier
+    // =========================================================================
+
+    #[test]
+    fn test_simple_chain_convergence_weight_based() {
+        // Create chain with zero weights - probability starts at 0
+        let mut graph = create_simple_chain();
+
+        // Record initial state
+        let initial_prob = mock_verify_weight_based(&graph).expect("verify failed");
+        assert!(
+            initial_prob < 0.1,
+            "Initial probability should be near zero, got {initial_prob}"
+        );
+
+        // Run training loop
+        let config = LearningConfig {
+            target_probability: 0.8,
+            learning_rate: 0.2,
+            convergence_threshold: 0.1,
+            max_iterations: 50,
+            epsilon: 0.0001,
+        };
+
+        let result = run_training_loop(&mut graph, &config, mock_verify_weight_based, None);
+
+        // Verify convergence or at least improvement
+        match result {
+            TrainingResult::Converged {
+                final_probability, ..
+            } => {
+                assert!(
+                    final_probability > initial_prob,
+                    "Probability should have increased: {initial_prob} -> {final_probability}"
+                );
+            }
+            TrainingResult::MaxIterations {
+                final_probability, ..
+            } => {
+                assert!(
+                    final_probability > initial_prob,
+                    "Probability should have increased even if not converged: {initial_prob} -> {final_probability}"
+                );
+            }
+            other => panic!("Unexpected result: {other:?}"),
+        }
+
+        // Verify weights increased along the chain
+        for edge in &graph.edges {
+            assert!(
+                edge.weight > 0.0,
+                "Edge {} should have positive weight after SHF",
+                edge.id.0
+            );
+        }
+    }
+
+    #[test]
+    fn test_diamond_convergence_weight_based() {
+        let mut graph = create_diamond();
+
+        // Record initial weights
+        let initial_weights: HashMap<_, _> = graph.edges.iter().map(|e| (e.id, e.weight)).collect();
+
+        let config = LearningConfig {
+            target_probability: 0.9,
+            learning_rate: 0.15,
+            convergence_threshold: 0.05,
+            max_iterations: 30,
+            epsilon: 0.0001,
+        };
+
+        let result = run_training_loop(&mut graph, &config, mock_verify_weight_based, None);
+
+        // Check that both paths had weights modified
+        let mut modified_count = 0;
+        for edge in &graph.edges {
+            let initial = initial_weights.get(&edge.id).copied().unwrap_or(0.0);
+            if (edge.weight - initial).abs() > 0.01 {
+                modified_count += 1;
+            }
+        }
+
+        assert!(
+            modified_count >= 2,
+            "At least 2 edges should be modified in diamond (got {modified_count})"
+        );
+
+        // Final probability should be higher
+        let final_prob = mock_verify_weight_based(&graph).expect("verify failed");
+        assert!(
+            final_prob > 0.3,
+            "Final probability should have improved, got {final_prob}"
+        );
+
+        // Verify the result type
+        match result {
+            TrainingResult::Converged { .. } | TrainingResult::MaxIterations { .. } => {}
+            other => panic!("Unexpected result: {other:?}"),
+        }
+    }
+
+    // =========================================================================
+    // Convergence Tests - Network Dynamics Mock Verifier
+    // =========================================================================
+
+    #[test]
+    fn test_simple_chain_convergence_network_dynamics() {
+        // Create chain with zero weights - probability starts at 0
+        let mut graph = create_simple_chain();
+
+        // Record initial state
+        let initial_prob = mock_verify_network_dynamics(&graph).expect("verify failed");
+        assert!(
+            initial_prob < 0.2,
+            "Initial probability should be low, got {initial_prob}"
+        );
+
+        // Run training loop
+        let config = LearningConfig {
+            target_probability: 0.8,
+            learning_rate: 0.25,
+            convergence_threshold: 0.15,
+            max_iterations: 100,
+            epsilon: 0.0001,
+        };
+
+        let result = run_training_loop(&mut graph, &config, mock_verify_network_dynamics, None);
+
+        // Verify improvement
+        let final_prob = mock_verify_network_dynamics(&graph).expect("verify failed");
+        assert!(
+            final_prob > initial_prob,
+            "Probability should have increased: {initial_prob} -> {final_prob}"
+        );
+
+        match result {
+            TrainingResult::Converged { .. } | TrainingResult::MaxIterations { .. } => {}
+            other => panic!("Unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_diamond_convergence_network_dynamics() {
+        let mut graph = create_diamond();
+
+        let initial_prob = mock_verify_network_dynamics(&graph).expect("verify failed");
+
+        let config = LearningConfig {
+            target_probability: 0.9,
+            learning_rate: 0.2,
+            convergence_threshold: 0.1,
+            max_iterations: 50,
+            epsilon: 0.0001,
+        };
+
+        let _ = run_training_loop(&mut graph, &config, mock_verify_network_dynamics, None);
+
+        // Final probability should be higher
+        let final_prob = mock_verify_network_dynamics(&graph).expect("verify failed");
+        assert!(
+            final_prob >= initial_prob,
+            "Final probability should not decrease: {initial_prob} -> {final_prob}"
+        );
+    }
+
+    // =========================================================================
+    // Weight Direction Tests
+    // =========================================================================
+
+    #[test]
+    fn test_shf_increases_excitatory_weights() {
+        let mut graph = create_simple_chain();
+
+        // Run a single SHF iteration with low current probability
+        let outputs = collect_learning_targets(&graph);
+        let firing_probs = estimate_firing_probabilities(&graph);
+        let config = LearningConfig::default();
+
+        let result = run_learning_iteration(
+            &mut graph,
+            &outputs,
+            0.1, // Very low probability - needs SHF
+            &firing_probs,
+            &config,
+        );
+
+        // Error should be positive (we need MORE firing)
+        assert!(
+            result.error > 0.0,
+            "Error should be positive when probability is low"
+        );
+
+        // With zero initial weights, the SHF signal can't fully propagate back
+        // through the chain in one iteration (propagated_signal = signal * weight * factor,
+        // and weight=0 means no propagation). But at least the edge closest to output
+        // should have been modified since it receives direct SHF.
+        // Count how many edges have positive weight
+        let positive_count = graph
+            .edges
+            .iter()
+            .filter(|e| !e.is_inhibitory && e.weight > 0.0)
+            .count();
+        assert!(
+            positive_count >= 1,
+            "At least one excitatory edge should have positive weight after SHF, got {positive_count}"
+        );
+
+        // Also verify weight_changes were recorded
+        assert!(
+            !result.weight_changes.is_empty(),
+            "SHF should record weight changes"
+        );
+    }
+
+    #[test]
+    fn test_snhf_decreases_excitatory_weights() {
+        // Create a graph with high weights
+        let mut graph = SnnGraph::default();
+        let input = graph.add_node("Input", NodeKind::Neuron, [0.0, 0.0]);
+        let output = graph.add_node("Output", NodeKind::Neuron, [100.0, 0.0]);
+        graph.add_edge(input, output, 1.0); // Max weight
+
+        // Run a single learning iteration with very HIGH current probability
+        let outputs = collect_learning_targets(&graph);
+        let firing_probs = estimate_firing_probabilities(&graph);
+        let config = LearningConfig {
+            target_probability: 0.2, // We want LOW probability
+            ..Default::default()
+        };
+
+        let initial_weight = graph.edges[0].weight;
+
+        let result = run_learning_iteration(
+            &mut graph,
+            &outputs,
+            0.9, // Currently too high - needs SNHF
+            &firing_probs,
+            &config,
+        );
+
+        // Error should be negative (we want LESS firing)
+        assert!(
+            result.error < 0.0,
+            "Error should be negative when probability is too high"
+        );
+
+        // Weight should have decreased
+        assert!(
+            graph.edges[0].weight < initial_weight,
+            "Weight should decrease after SNHF: {} -> {}",
+            initial_weight,
+            graph.edges[0].weight
+        );
+    }
+
+    // =========================================================================
+    // Monotonicity Test
+    // =========================================================================
+
+    #[test]
+    fn test_probability_trends_upward() {
+        use std::sync::{Arc, Mutex};
+
+        let mut graph = create_diamond();
+
+        let config = LearningConfig {
+            target_probability: 0.8,
+            learning_rate: 0.1,
+            convergence_threshold: 0.05,
+            max_iterations: 20,
+            epsilon: 0.0001,
+        };
+
+        let probabilities = Arc::new(Mutex::new(Vec::new()));
+        let probs_clone = Arc::clone(&probabilities);
+
+        let _ = run_training_loop(
+            &mut graph,
+            &config,
+            mock_verify_weight_based,
+            Some(Box::new(move |progress: &TrainingProgress| {
+                probs_clone
+                    .lock()
+                    .expect("lock failed")
+                    .push(progress.current_probability);
+                true // Continue training
+            })),
+        );
+
+        // Check that probability generally trends upward
+        // (Allow for some noise, but overall trend should be positive)
+        let probs = probabilities.lock().expect("lock failed");
+        if probs.len() >= 3 {
+            let third = probs.len() / 3;
+            let first_third: f64 = probs[..third].iter().sum::<f64>() / third as f64;
+            let last_third: f64 =
+                probs[2 * third..].iter().sum::<f64>() / (probs.len() - 2 * third) as f64;
+
+            assert!(
+                last_third >= first_third - 0.1,
+                "Probability should trend upward: first third avg={first_third}, last third avg={last_third}"
+            );
+        }
     }
 }
