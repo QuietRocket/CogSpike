@@ -615,40 +615,52 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         .resizable(true)
         .scroll([true, true])
         .show(ctx, |ui| {
-            // Generate PCTL properties from the graph
-            let properties_text = generate_pctl_properties(&app.design.graph);
+            // The actual .pctl file content that will be sent to PRISM
+            // This matches what write_inputs() does in model_checker.rs
+            let actual_pctl_content = format!("{};\n", app.verify.current_formula);
+
+            ui.heading("Properties File (.pctl)");
+            ui.label("This is what will actually be written to the .pctl file and sent to PRISM:");
+            ui.add_space(4.0);
 
             ui.horizontal(|ui| {
                 if ui.button("📋 Copy to Clipboard").clicked() {
-                    ctx.copy_text(properties_text.clone());
+                    ctx.copy_text(actual_pctl_content.clone());
                     app.push_log("PCTL properties copied to clipboard");
                 }
-                ui.separator();
-                ui.label(format!("{} lines", properties_text.lines().count()));
             });
-            ui.separator();
-
-            ui.label("These are the auto-generated PCTL properties written to .pctl file:");
             ui.add_space(4.0);
 
-            // Also show the current formula being used
+            // Show the actual content in a prominent box
             ui.group(|ui| {
-                ui.label("Current formula (from editor):");
-                ui.monospace(&app.verify.current_formula);
+                ui.add(
+                    egui::TextEdit::multiline(&mut actual_pctl_content.as_str())
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3),
+                );
             });
-            ui.add_space(8.0);
 
-            ui.label("Generated property templates:");
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut properties_text.as_str())
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(20),
-                    );
-                });
+            ui.add_space(12.0);
+            ui.separator();
+
+            // Collapsible section for generated property templates
+            ui.collapsing("📚 Property Templates (for reference)", |ui| {
+                ui.label("Auto-generated PCTL property examples you can copy:");
+                ui.add_space(4.0);
+
+                let templates = generate_pctl_properties(&app.design.graph);
+                egui::ScrollArea::vertical()
+                    .max_height(250.0)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut templates.as_str())
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(15),
+                        );
+                    });
+            });
         });
     app.verify.show_properties_window = show_properties_window;
 
