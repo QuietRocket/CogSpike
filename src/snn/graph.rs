@@ -27,29 +27,38 @@ impl NodeKind {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NeuronParams {
-    pub p_rth: f32,
-    pub p_rest: f32,
-    pub p_reset: f32,
-    pub leak_r: f32,
+    /// Resting threshold potential (0-100, representing 0.0-1.0)
+    pub p_rth: u8,
+    /// Resting potential (0-100)
+    pub p_rest: u8,
+    /// Reset potential after spike (0-100)
+    pub p_reset: u8,
+    /// Leak rate (0-100, representing 0.0-1.0)
+    pub leak_r: u8,
+    /// Absolute refractory period (time steps)
     pub arp: u32,
+    /// Relative refractory period (time steps)
     pub rrp: u32,
-    pub alpha: f32,
-    pub dt: f32,
-    pub thresholds: [f32; 10],
+    /// Alpha scaling factor for RRP (0-100, representing 0.0-1.0)
+    pub alpha: u8,
+    /// Time step in tenths of ms (e.g., 10 = 1.0ms, 1 = 0.1ms)
+    pub dt: u8,
+    /// Firing probability thresholds (0-100 each, representing 0.0-1.0)
+    pub thresholds: [u8; 10],
 }
 
 impl Default for NeuronParams {
     fn default() -> Self {
         Self {
-            p_rth: 1.0,
-            p_rest: 0.0,
-            p_reset: 0.0,
-            leak_r: 0.95,
+            p_rth: 100,
+            p_rest: 0,
+            p_reset: 0,
+            leak_r: 95,
             arp: 2,
             rrp: 4,
-            alpha: 0.5,
-            dt: 0.1,
-            thresholds: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            alpha: 50,
+            dt: 1, // 0.1ms in tenths
+            thresholds: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
         }
     }
 }
@@ -75,8 +84,8 @@ pub struct Edge {
     pub id: EdgeId,
     pub from: NodeId,
     pub to: NodeId,
-    /// Weight magnitude (always positive, 0.0 to 1.0).
-    pub weight: f32,
+    /// Weight magnitude (0-100, representing 0.0-1.0).
+    pub weight: u8,
     /// If true, this is an inhibitory synapse; otherwise it's excitatory.
     #[serde(default)]
     pub is_inhibitory: bool,
@@ -84,12 +93,10 @@ pub struct Edge {
 
 impl Edge {
     /// Get the effective signed weight (negative if inhibitory).
-    pub fn signed_weight(&self) -> f32 {
-        if self.is_inhibitory {
-            -self.weight
-        } else {
-            self.weight
-        }
+    /// Returns i16 to safely handle the full range of -100 to +100.
+    pub fn signed_weight(&self) -> i16 {
+        let w = self.weight as i16;
+        if self.is_inhibitory { -w } else { w }
     }
 }
 
@@ -115,7 +122,7 @@ impl Default for SnnGraph {
 }
 
 impl SnnGraph {
-    const DEFAULT_WEIGHT: f32 = 1.0;
+    const DEFAULT_WEIGHT: u8 = 100;
 
     const fn default_node_id() -> u32 {
         1
@@ -145,14 +152,14 @@ impl SnnGraph {
         id
     }
 
-    /// Add an edge between two nodes with the given weight magnitude.
+    /// Add an edge between two nodes with the given weight magnitude (0-100).
     /// The is_inhibitory flag defaults to false (excitatory).
-    pub fn add_edge(&mut self, from: NodeId, to: NodeId, weight: f32) -> Option<EdgeId> {
+    pub fn add_edge(&mut self, from: NodeId, to: NodeId, weight: u8) -> Option<EdgeId> {
         self.add_edge_with_type(from, to, weight, false)
     }
 
     /// Add an inhibitory edge between two nodes.
-    pub fn add_edge_inhibitory(&mut self, from: NodeId, to: NodeId, weight: f32) -> Option<EdgeId> {
+    pub fn add_edge_inhibitory(&mut self, from: NodeId, to: NodeId, weight: u8) -> Option<EdgeId> {
         self.add_edge_with_type(from, to, weight, true)
     }
 
@@ -161,7 +168,7 @@ impl SnnGraph {
         &mut self,
         from: NodeId,
         to: NodeId,
-        weight: f32,
+        weight: u8,
         is_inhibitory: bool,
     ) -> Option<EdgeId> {
         if from == to {
@@ -180,7 +187,7 @@ impl SnnGraph {
             id,
             from,
             to,
-            weight: weight.abs().clamp(0.0, 1.0),
+            weight: weight.min(100),
             is_inhibitory,
         });
         Some(id)
@@ -268,10 +275,10 @@ impl SnnGraph {
         self.edges.iter_mut().find(|e| e.id == id)
     }
 
-    /// Update the weight magnitude of an edge, clamping to [0.0, 1.0].
-    pub fn update_weight(&mut self, id: EdgeId, new_weight: f32) {
+    /// Update the weight magnitude of an edge, clamping to [0, 100].
+    pub fn update_weight(&mut self, id: EdgeId, new_weight: u8) {
         if let Some(edge) = self.edge_mut(id) {
-            edge.weight = new_weight.abs().clamp(0.0, 1.0);
+            edge.weight = new_weight.min(100);
         }
     }
 
@@ -291,16 +298,18 @@ impl SnnGraph {
     }
 
     /// Randomize all edge weight magnitudes within the given range [min, max].
-    /// Weights are clamped to [0.0, 1.0] after randomization.
-    pub fn randomize_weights(&mut self, min: f32, max: f32) {
+    /// Weights are clamped to [0, 100] after randomization.
+    pub fn randomize_weights(&mut self, min: u8, max: u8) {
         let mut rng = rand::thread_rng();
+        let min_val = min.min(100);
+        let max_val = max.min(100);
         for edge in &mut self.edges {
-            edge.weight = rng.gen_range(min.abs()..=max.abs()).clamp(0.0, 1.0);
+            edge.weight = rng.gen_range(min_val..=max_val);
         }
     }
 
-    /// Randomize all edge weight magnitudes within [0).0, range].
-    pub fn randomize_weights_symmetric(&mut self, range: f32) {
-        self.randomize_weights(0.0, range.abs());
+    /// Randomize all edge weight magnitudes within [0, range].
+    pub fn randomize_weights_symmetric(&mut self, range: u8) {
+        self.randomize_weights(0, range);
     }
 }

@@ -51,19 +51,35 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     .num_columns(2)
                     .show(ui, |ui| {
                         ui.label("P_rth");
-                        ui.add(egui::DragValue::new(&mut node.params.p_rth).speed(0.05));
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.p_rth)
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
+                        );
                         ui.end_row();
                         ui.label("P_rest");
-                        ui.add(egui::DragValue::new(&mut node.params.p_rest).speed(0.05));
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.p_rest)
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
+                        );
                         ui.end_row();
                         ui.label("P_reset");
-                        ui.add(egui::DragValue::new(&mut node.params.p_reset).speed(0.05));
+                        ui.add(
+                            egui::DragValue::new(&mut node.params.p_reset)
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
+                        );
                         ui.end_row();
                         ui.label("Leak r");
                         ui.add(
                             egui::DragValue::new(&mut node.params.leak_r)
-                                .speed(0.01)
-                                .range(0.0..=1.0),
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
                         );
                         ui.end_row();
                         ui.label("ARP");
@@ -83,28 +99,34 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                         ui.label("alpha");
                         ui.add(
                             egui::DragValue::new(&mut node.params.alpha)
-                                .speed(0.01)
-                                .range(0.0..=1.0),
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
                         );
                         ui.end_row();
-                        ui.label("dt");
+                        ui.label("dt (tenths)");
                         ui.add(
                             egui::DragValue::new(&mut node.params.dt)
-                                .speed(0.01)
-                                .range(0.001..=10.0),
+                                .speed(1)
+                                .range(1..=100),
                         );
                         ui.end_row();
                     });
             });
 
-            ui.collapsing("Thresholds (fraction of P_rth)", |ui| {
+            ui.collapsing("Thresholds (% of P_rth)", |ui| {
                 egui::Grid::new("thresholds_grid")
                     .num_columns(4)
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for (idx, threshold) in node.params.thresholds.iter_mut().enumerate() {
                             ui.label(format!("th{}", idx + 1));
-                            ui.add(egui::DragValue::new(threshold).speed(0.01).range(0.0..=1.2));
+                            ui.add(
+                                egui::DragValue::new(threshold)
+                                    .speed(1)
+                                    .range(0..=120)
+                                    .suffix("%"),
+                            );
                             if idx % 2 == 1 {
                                 ui.end_row();
                             }
@@ -184,8 +206,9 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     ui.label("Weight");
                     ui.add(
                         egui::DragValue::new(&mut edge.weight)
-                            .speed(0.01)
-                            .range(0.0..=1.0),
+                            .speed(1)
+                            .range(0..=100)
+                            .suffix("%"),
                     );
                 });
 

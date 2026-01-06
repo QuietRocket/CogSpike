@@ -99,23 +99,16 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 
 fn write_global_constants(out: &mut String, params: &NeuronParams, config: &PrismGenConfig) {
     writeln!(out, "// Global neuron parameters").ok();
-    writeln!(out, "const int P_rth = {};", (params.p_rth * 100.0) as i32).ok();
-    writeln!(
-        out,
-        "const int P_rest = {};",
-        (params.p_rest * 100.0) as i32
-    )
-    .ok();
-    writeln!(
-        out,
-        "const int P_reset = {};",
-        (params.p_reset * 100.0) as i32
-    )
-    .ok();
-    writeln!(out, "const double r = {};", params.leak_r).ok();
+    // Values are already in 0-100 range
+    writeln!(out, "const int P_rth = {};", params.p_rth).ok();
+    writeln!(out, "const int P_rest = {};", params.p_rest).ok();
+    writeln!(out, "const int P_reset = {};", params.p_reset).ok();
+    // leak_r is 0-100, representing 0.0-1.0, so divide by 100 for PRISM double
+    writeln!(out, "const double r = {};", params.leak_r as f64 / 100.0).ok();
     writeln!(out, "const int ARP = {};", params.arp).ok();
     writeln!(out, "const int RRP = {};", params.rrp).ok();
-    writeln!(out, "const double alpha = {};", params.alpha).ok();
+    // alpha is 0-100, representing 0.0-1.0
+    writeln!(out, "const double alpha = {};", params.alpha as f64 / 100.0).ok();
     writeln!(out, "const int P_MIN = {};", config.potential_range.0).ok();
     writeln!(out, "const int P_MAX = {};", config.potential_range.1).ok();
     if let Some(t) = config.time_bound {
@@ -126,7 +119,8 @@ fn write_global_constants(out: &mut String, params: &NeuronParams, config: &Pris
 fn write_threshold_formulas(out: &mut String, params: &NeuronParams) {
     writeln!(out, "// Firing probability thresholds (fraction of P_rth)").ok();
     for (i, th) in params.thresholds.iter().enumerate() {
-        writeln!(out, "formula threshold{} = {} * P_rth;", i + 1, th).ok();
+        // thresholds are 0-100, convert to fraction for formula
+        writeln!(out, "formula threshold{} = {} * P_rth / 100;", i + 1, th).ok();
     }
 }
 
@@ -134,7 +128,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Synaptic weights").ok();
     for edge in &graph.edges {
         let is_input = graph.is_input(edge.from);
-        // Use signed_weight() to get effective weight (negative for inhibitory)
+        // signed_weight() now returns i16 directly in -100..100 range
         let effective_weight = edge.signed_weight();
 
         if is_input {
@@ -142,9 +136,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
             writeln!(
                 out,
                 "const int weight_in{}_{} = {};",
-                edge.from.0,
-                edge.to.0,
-                (effective_weight * 100.0) as i32
+                edge.from.0, edge.to.0, effective_weight
             )
             .ok();
         } else {
@@ -152,9 +144,7 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
             writeln!(
                 out,
                 "const int weight_n{}_{} = {};",
-                edge.from.0,
-                edge.to.0,
-                (effective_weight * 100.0) as i32
+                edge.from.0, edge.to.0, effective_weight
             )
             .ok();
         }
@@ -277,7 +267,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
         out,
         "  p{} : [P_MIN..P_MAX] init {};  // membrane potential",
         n,
-        (params.p_rest * 100.0) as i32
+        params.p_rest // Already in 0-100 range
     )
     .ok();
     writeln!(out).ok();

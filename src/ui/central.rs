@@ -12,7 +12,7 @@ use crate::{
 const GRID_SPACING: f32 = 32.0;
 const NODE_RADIUS: f32 = 18.0;
 const NODE_DIAMETER: f32 = NODE_RADIUS * 2.0;
-const EDGE_DEFAULT_WEIGHT: f32 = 1.0;
+const EDGE_DEFAULT_WEIGHT: u8 = 100;
 const ARROW_HEAD_LENGTH: f32 = 10.0;
 const ARROW_HEAD_WIDTH: f32 = 8.0;
 const SELECT_HALO_ALPHA: u8 = 70;
@@ -779,8 +779,8 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         columns[1].add_space(4.0);
         columns[1].horizontal(|ui| {
             if ui.button("🎲 Randomize Weights").clicked() {
-                app.design.graph.randomize_weights_symmetric(1.0);
-                app.push_log("Weights randomized to [-1.0, 1.0]".to_owned());
+                app.design.graph.randomize_weights_symmetric(100);
+                app.push_log("Weights randomized to [0, 100]".to_owned());
             }
         });
 
