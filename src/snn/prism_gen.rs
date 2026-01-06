@@ -4,7 +4,7 @@
 //! probabilistic model checking with PRISM.
 
 use crate::snn::graph::{NeuronParams, Node, SnnGraph};
-use std::fmt::Write;
+use std::fmt::Write as _;
 
 /// Configuration for PRISM model generation.
 #[derive(Debug, Clone)]
@@ -112,7 +112,7 @@ fn write_global_constants(out: &mut String, params: &NeuronParams, config: &Pris
     writeln!(out, "const int P_MIN = {};", config.potential_range.0).ok();
     writeln!(out, "const int P_MAX = {};", config.potential_range.1).ok();
     if let Some(t) = config.time_bound {
-        writeln!(out, "const int T_MAX = {};", t).ok();
+        writeln!(out, "const int T_MAX = {t};").ok();
     }
 }
 
@@ -208,7 +208,7 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
         }
 
         let input_sum = if terms.is_empty() {
-            "0".to_string()
+            "0".to_owned()
         } else {
             terms.join(" + ")
         };
@@ -253,16 +253,17 @@ fn write_input_module(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "endmodule").ok();
 }
 
+#[expect(clippy::needless_range_loop, clippy::indexing_slicing)]
 fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config: &PrismGenConfig) {
     let n = node.id.0;
     let params = &node.params;
 
-    writeln!(out, "module Neuron{}", n).ok();
+    writeln!(out, "module Neuron{n}").ok();
     writeln!(out, "  // State: 0=normal, 1=ARP, 2=RRP").ok();
-    writeln!(out, "  s{} : [0..2] init 0;", n).ok();
-    writeln!(out, "  aref{} : [0..ARP] init 0;", n).ok();
-    writeln!(out, "  rref{} : [0..RRP] init 0;", n).ok();
-    writeln!(out, "  y{} : [0..1] init 0;  // spike output", n).ok();
+    writeln!(out, "  s{n} : [0..2] init 0;").ok();
+    writeln!(out, "  aref{n} : [0..ARP] init 0;").ok();
+    writeln!(out, "  rref{n} : [0..RRP] init 0;").ok();
+    writeln!(out, "  y{n} : [0..1] init 0;  // spike output").ok();
     writeln!(
         out,
         "  p{} : [P_MIN..P_MAX] init {};  // membrane potential",
@@ -276,8 +277,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     writeln!(out, "  // Normal period - spike action").ok();
     writeln!(
         out,
-        "  [spike{}] s{} = 0 & y{} = 1 -> (p{}' = P_reset) & (aref{}' = ARP) & (y{}' = 0) & (s{}' = 1);",
-        n, n, n, n, n, n, n
+        "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
     )
     .ok();
 
@@ -287,8 +287,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     // Below threshold1: no spike
     writeln!(
         out,
-        "  [tick] s{} = 0 & y{} = 0 & p{} <= threshold1 -> (y{}' = 0) & (p{}' = newPotential_{});",
-        n, n, n, n, n, n
+        "  [tick] s{n} = 0 & y{n} = 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
     )
     .ok();
 
@@ -308,8 +307,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     // Above threshold10: always spike
     writeln!(
         out,
-        "  [tick] s{} = 0 & y{} = 0 & p{} > threshold10 -> 1.0:(y{}' = 1);",
-        n, n, n, n
+        "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold10 -> 1.0:(y{n}' = 1);"
     )
     .ok();
 
@@ -319,14 +317,12 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     writeln!(out, "  // Absolute refractory period").ok();
     writeln!(
         out,
-        "  [tick] s{} = 1 & aref{} > 0 -> (aref{}' = aref{} - 1) & (y{}' = 0) & (p{}' = newPotential_{});",
-        n, n, n, n, n, n, n
+        "  [tick] s{n} = 1 & aref{n} > 0 -> (aref{n}' = aref{n} - 1) & (y{n}' = 0) & (p{n}' = newPotential_{n});"
     )
     .ok();
     writeln!(
         out,
-        "  [tick] s{} = 1 & aref{} = 0 -> (s{}' = 2) & (rref{}' = RRP) & (y{}' = 0);",
-        n, n, n, n, n
+        "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 2) & (rref{n}' = RRP) & (y{n}' = 0);"
     )
     .ok();
 
@@ -340,16 +336,14 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     .ok();
     writeln!(
         out,
-        "  [spike{}] s{} = 2 & y{} = 1 & rref{} > 0 -> (p{}' = P_reset) & (aref{}' = ARP) & (y{}' = 0) & (rref{}' = 0) & (s{}' = 1);",
-        n, n, n, n, n, n, n, n, n
+        "  [spike{n}] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
     )
     .ok();
 
     // RRP probabilistic firing (alpha-scaled)
     writeln!(
         out,
-        "  [tick] s{} = 2 & y{} = 0 & rref{} > 0 & p{} <= threshold1 -> (y{}' = 0) & (p{}' = newPotential_{}) & (rref{}' = rref{} - 1);",
-        n, n, n, n, n, n, n, n, n
+        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
     )
     .ok();
 
@@ -368,8 +362,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config
     // RRP ended - return to normal
     writeln!(
         out,
-        "  [tick] s{} = 2 & y{} = 0 & rref{} = 0 -> (p{}' = P_reset) & (y{}' = 0) & (s{}' = 0);",
-        n, n, n, n, n, n
+        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
     )
     .ok();
 
@@ -496,7 +489,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     }
     writeln!(out).ok();
 
-    // Safety: refractory correctness
+    // Refractory correctness check
     writeln!(out, "// Safety: No spikes during absolute refractory").ok();
     for node in &graph.nodes {
         if graph.is_input(node.id) {

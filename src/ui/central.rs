@@ -139,6 +139,7 @@ fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui) {
 
 /// Draw edges with interactive clicking support for edge selection.
 /// Also positions weight label offset from the edge line for readability.
+#[expect(clippy::needless_pass_by_ref_mut)] // ui.interact() requires &mut self
 fn draw_edges_interactive(
     app: &mut TemplateApp,
     ui: &mut egui::Ui,
@@ -208,7 +209,7 @@ fn draw_edges_interactive(
             painter.text(
                 label_pos,
                 egui::Align2::CENTER_CENTER,
-                format!("{:+.2}", weight),
+                format!("{weight:+.2}"),
                 egui::FontId::proportional(12.0),
                 text_color,
             );
@@ -282,6 +283,7 @@ fn draw_directed_edge(
     ));
 }
 
+#[expect(clippy::needless_pass_by_ref_mut)] // ui.interact() requires &mut self
 fn draw_nodes(app: &mut TemplateApp, ui: &mut egui::Ui, painter: &egui::Painter, rect: egui::Rect) {
     let shift_down = ui.input(|i| i.modifiers.shift);
     let pointer_delta = ui.input(|i| i.pointer.delta());
@@ -526,6 +528,7 @@ fn placeholder_plot(ui: &mut egui::Ui, label: &str) {
     );
 }
 
+#[expect(clippy::too_many_lines, clippy::indexing_slicing)]
 fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     app.poll_model_checker();
     app.poll_training_job();
@@ -728,7 +731,7 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.strong(format!("Property {} status: {}", idx + 1, res.status));
                     ui.label(format!("Formula: {}", res.formula));
                     if let Some(prob) = res.probability {
-                        ui.label(format!("Probability: {:.6}", prob));
+                        ui.label(format!("Probability: {prob:.6}"));
                     }
                     ui.collapsing("Raw output", |ui| {
                         egui::ScrollArea::vertical()
@@ -888,7 +891,7 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                             elapsed
                         ));
                     } else {
-                        ui.label(format!("Starting... ({:.1?})", elapsed));
+                        ui.label(format!("Starting... ({elapsed:.1?})"));
                     }
                 }
             }
@@ -920,7 +923,7 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .learning_state
                         .probability_history
                         .iter()
-                        .map(|p| format!("{:.3}", p))
+                        .map(|p| format!("{p:.3}"))
                         .collect::<Vec<_>>()
                         .join(" → ");
                     ui.monospace(&history);

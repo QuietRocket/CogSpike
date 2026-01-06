@@ -61,20 +61,20 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub const ALL: [Mode; 3] = [Mode::Design, Mode::Simulate, Mode::Verify];
+    pub const ALL: [Self; 3] = [Self::Design, Self::Simulate, Self::Verify];
 
     pub fn label(self) -> &'static str {
         match self {
-            Mode::Design => "Design",
-            Mode::Simulate => "Simulate",
-            Mode::Verify => "Verify",
+            Self::Design => "Design",
+            Self::Simulate => "Simulate",
+            Self::Verify => "Verify",
         }
     }
 }
 
 impl Default for Mode {
     fn default() -> Self {
-        Mode::Design
+        Self::Design
     }
 }
 
@@ -146,26 +146,26 @@ pub enum SimTab {
 }
 
 impl SimTab {
-    pub const ALL: [SimTab; 4] = [
-        SimTab::Timeline,
-        SimTab::Raster,
-        SimTab::Potentials,
-        SimTab::Aggregates,
+    pub const ALL: [Self; 4] = [
+        Self::Timeline,
+        Self::Raster,
+        Self::Potentials,
+        Self::Aggregates,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            SimTab::Timeline => "Timeline",
-            SimTab::Raster => "Raster plot",
-            SimTab::Potentials => "Membrane potentials",
-            SimTab::Aggregates => "Aggregates",
+            Self::Timeline => "Timeline",
+            Self::Raster => "Raster plot",
+            Self::Potentials => "Membrane potentials",
+            Self::Aggregates => "Aggregates",
         }
     }
 }
 
 impl Default for SimTab {
     fn default() -> Self {
-        SimTab::Timeline
+        Self::Timeline
     }
 }
 
@@ -233,7 +233,7 @@ impl TrainingJob {
     }
 
     /// Check if stop has been requested.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub fn is_stop_requested(&self) -> bool {
         self.stop_requested.load(Ordering::SeqCst)
     }
@@ -258,7 +258,7 @@ impl TrainingJob {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct VerifyState {
     pub(crate) current_formula: String,
     pub(crate) description: String,
@@ -397,6 +397,7 @@ impl TemplateApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[expect(clippy::unnecessary_wraps)]
     fn build_model_checker(prism_path: &str) -> Option<Arc<dyn ModelChecker>> {
         Some(Arc::new(LocalPrism::new(prism_path)))
     }
@@ -447,6 +448,7 @@ impl TemplateApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[expect(clippy::let_underscore_must_use, clippy::let_underscore_untyped)]
     pub(crate) fn start_model_check(&mut self) -> Result<(), String> {
         if self.verify.job.is_some() {
             return Err("Model checker already running".to_owned());
@@ -484,12 +486,12 @@ impl TemplateApp {
                 Ok(response) => {
                     self.verify.last_result = Some(response);
                     self.verify.last_error = None;
-                    self.push_log(format!("PRISM finished in {:.1?}", elapsed));
+                    self.push_log(format!("PRISM finished in {elapsed:.1?}"));
                 }
                 Err(err) => {
                     self.verify.last_result = None;
                     self.verify.last_error = Some(err.to_string());
-                    self.push_log(format!("PRISM failed after {:.1?}: {err}", elapsed));
+                    self.push_log(format!("PRISM failed after {elapsed:.1?}: {err}"));
                 }
             }
         }
@@ -501,6 +503,11 @@ impl TemplateApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[expect(
+        clippy::too_many_lines,
+        clippy::let_underscore_must_use,
+        clippy::let_underscore_untyped
+    )]
     pub(crate) fn start_training(&mut self) -> Result<(), String> {
         use crate::learning::{
             collect_learning_targets, estimate_firing_probabilities, run_learning_iteration,
@@ -675,8 +682,7 @@ impl TemplateApp {
                 } => {
                     self.verify.learning_state.converged = true;
                     self.push_log(format!(
-                        "Training converged in {} iterations (prob={:.4}) in {:.1?}",
-                        iterations, final_probability, elapsed
+                        "Training converged in {iterations} iterations (prob={final_probability:.4}) in {elapsed:.1?}"
                     ));
                 }
                 TrainingResult::MaxIterations {
@@ -685,12 +691,11 @@ impl TemplateApp {
                     ..
                 } => {
                     self.push_log(format!(
-                        "Training reached max {} iterations (prob={:.4}) in {:.1?}",
-                        iterations, final_probability, elapsed
+                        "Training reached max {iterations} iterations (prob={final_probability:.4}) in {elapsed:.1?}"
                     ));
                 }
                 TrainingResult::Stopped { iterations, .. } => {
-                    self.push_log(format!("Training stopped at iteration {}", iterations));
+                    self.push_log(format!("Training stopped at iteration {iterations}"));
                 }
                 TrainingResult::Error(e) => {
                     self.push_log(format!("Training failed: {e}"));

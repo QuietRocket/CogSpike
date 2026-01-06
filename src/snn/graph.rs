@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -15,13 +15,13 @@ pub enum NodeKind {
 impl NodeKind {
     pub fn label(self) -> &'static str {
         match self {
-            NodeKind::Neuron => "Neuron",
+            Self::Neuron => "Neuron",
         }
     }
 
     /// Returns all node kinds available for manual creation.
-    pub const fn palette() -> &'static [NodeKind] {
-        &[NodeKind::Neuron]
+    pub const fn palette() -> &'static [Self] {
+        &[Self::Neuron]
     }
 }
 
@@ -153,7 +153,7 @@ impl SnnGraph {
     }
 
     /// Add an edge between two nodes with the given weight magnitude (0-100).
-    /// The is_inhibitory flag defaults to false (excitatory).
+    /// The `is_inhibitory` flag defaults to false (excitatory).
     pub fn add_edge(&mut self, from: NodeId, to: NodeId, weight: u8) -> Option<EdgeId> {
         self.add_edge_with_type(from, to, weight, false)
     }
@@ -257,7 +257,7 @@ impl SnnGraph {
         self.is_input(id)
     }
 
-    /// Returns all nodes that are learning targets (have target_probability set).
+    /// Returns all nodes that are learning targets (have `target_probability` set).
     pub fn learning_targets(&self) -> Vec<&Node> {
         self.nodes
             .iter()

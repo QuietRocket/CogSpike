@@ -11,6 +11,7 @@ pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
     }
 }
 
+#[expect(clippy::too_many_lines)]
 fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.label("Network");
     let current = app
@@ -197,7 +198,7 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         });
 
         if let Some((from_label, to_label)) = edge_info {
-            ui.label(format!("Edge {} → {}", from_label, to_label));
+            ui.label(format!("Edge {from_label} → {to_label}"));
             ui.label(format!("ID: {}", edge_id.0));
 
             // Now borrow mutably for editing
@@ -278,7 +279,7 @@ fn verify_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             .iter()
             .filter(|n| !app.design.graph.is_input(n.id))
             .count();
-        ui.label(format!("Generating from {} neurons", n_neurons));
+        ui.label(format!("Generating from {n_neurons} neurons"));
     }
 
     ui.separator();

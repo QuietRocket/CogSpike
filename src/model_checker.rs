@@ -10,7 +10,7 @@ use std::{
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::{Command, Stdio};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,6 +53,10 @@ pub type PrismResponse = Vec<PrismPropertyResult>;
 
 pub trait ModelChecker: Send + Sync {
     fn name(&self) -> &'static str;
+    /// Run model checking on the given request.
+    ///
+    /// # Errors
+    /// Returns an error if model checking fails due to PRISM issues or invalid input.
     fn check(&self, request: PrismRequest) -> Result<PrismResponse>;
 }
 
@@ -102,7 +106,7 @@ impl LocalPrism {
             let prism_home = prism_path
                 .parent()
                 .and_then(|p| {
-                    if p.file_name().map_or(false, |name| name == "bin") {
+                    if p.file_name().is_some_and(|name| name == "bin") {
                         p.parent()
                     } else {
                         Some(p)
@@ -118,6 +122,7 @@ impl LocalPrism {
         }
     }
 
+    #[expect(clippy::unused_self)]
     fn write_inputs(&self, req: &PrismRequest, dir: &TempDir) -> Result<(PathBuf, PathBuf)> {
         let model_path = dir.path().join("model.pm");
         let props_path = dir.path().join("properties.pctl");
@@ -137,19 +142,16 @@ impl LocalPrism {
         let lowercase = raw_output.to_ascii_lowercase();
 
         // Try to extract probability/result value first
-        let probability = raw_output
-            .lines()
-            .find_map(|line| {
-                let line = line.trim_start();
-                if let Some(rest) = line.strip_prefix("Result:") {
-                    rest.trim()
-                        .split_whitespace()
-                        .next()
-                        .and_then(|token| token.parse::<f64>().ok())
-                } else {
-                    None
-                }
-            });
+        let probability = raw_output.lines().find_map(|line| {
+            let line = line.trim_start();
+            if let Some(rest) = line.strip_prefix("Result:") {
+                rest.split_whitespace()
+                    .next()
+                    .and_then(|token| token.parse::<f64>().ok())
+            } else {
+                None
+            }
+        });
 
         // Determine status based on result type
         let status = if lowercase.contains("result: true") {
@@ -193,8 +195,7 @@ impl ModelChecker for LocalPrism {
         let classpath = prism_home.map(|home| {
             let home_str = home.to_string_lossy();
             format!(
-                "{}/lib/prism.jar:{}/classes:{}:{}/lib/pepa.zip:{}/lib/*",
-                home_str, home_str, home_str, home_str, home_str
+                "{home_str}/lib/prism.jar:{home_str}/classes:{home_str}:{home_str}/lib/pepa.zip:{home_str}/lib/*"
             )
         });
 
@@ -214,7 +215,10 @@ impl ModelChecker for LocalPrism {
                     }
                     c.env("DYLD_LIBRARY_PATH", dyld.clone());
                     c.env("JAVA_LIBRARY_PATH", dyld);
-                    c.arg("-Djava.library.path=".to_owned() + lib_path.to_string_lossy().as_ref());
+                    c.arg(format!(
+                        "-Djava.library.path={}",
+                        lib_path.to_string_lossy()
+                    ));
                     c.arg("-classpath").arg(cp);
                 }
                 c.arg("-Xmx1g")
@@ -242,7 +246,7 @@ impl ModelChecker for LocalPrism {
 
             let output = cmd
                 .output()
-                .with_context(|| format!("failed to run PRISM at {:?}", self.prism_path))?;
+                .with_context(|| format!("failed to run PRISM at {}", self.prism_path.display()))?;
 
             let raw_output = format!(
                 "{}{}",

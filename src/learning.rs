@@ -272,6 +272,7 @@ pub fn run_learning_iteration(
 /// - Strengthening excitatory inputs
 /// - Weakening inhibitory inputs
 /// - Recursively advising predecessors
+#[expect(clippy::branches_sharing_code)]
 fn propagate_shf(
     graph: &mut SnnGraph,
     node_id: NodeId,
@@ -362,6 +363,7 @@ fn propagate_shf(
 /// - Weakening excitatory inputs
 /// - Strengthening inhibitory inputs
 /// - Recursively advising predecessors
+#[expect(clippy::branches_sharing_code)]
 fn propagate_snhf(
     graph: &mut SnnGraph,
     node_id: NodeId,
@@ -471,7 +473,7 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
     probs
 }
 
-/// Collect output neurons for learning (nodes with target_probability set, or topological outputs).
+/// Collect output neurons for learning (nodes with `target_probability` set, or topological outputs).
 pub fn collect_learning_targets(graph: &SnnGraph) -> Vec<NodeId> {
     let mut targets = Vec::new();
 
