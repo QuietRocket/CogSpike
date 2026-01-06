@@ -1,6 +1,8 @@
 use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 
+use crate::simulation::InputNeuronConfig;
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u32);
 
@@ -76,6 +78,10 @@ pub struct Node {
     /// Optional PCTL formula for verification (e.g., "F \"spike\"").
     #[serde(default)]
     pub target_formula: Option<String>,
+    /// Input configuration for input neurons (generators, patterns).
+    /// Only meaningful when this is an input neuron (no incoming edges).
+    #[serde(default)]
+    pub input_config: Option<InputNeuronConfig>,
     pub position: [f32; 2],
 }
 
@@ -147,6 +153,7 @@ impl SnnGraph {
             params: NeuronParams::default(),
             target_probability: None,
             target_formula: None,
+            input_config: None,
             position,
         });
         id

@@ -3,6 +3,7 @@
 mod app;
 pub mod learning;
 pub mod model_checker;
+pub mod simulation;
 pub mod snn;
 mod ui;
 

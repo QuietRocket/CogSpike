@@ -38,6 +38,7 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
         // Check topology before mutable borrow
         let is_output_node = app.design.graph.is_output(node_id);
+        let is_input_node = app.design.graph.is_input(node_id);
 
         if let Some(node) = app.design.graph.node_mut(node_id) {
             ui.label(format!("ID {}", node_id.0));
@@ -165,6 +166,231 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                         ui.label("Formula");
                         ui.text_edit_singleline(formula);
                     });
+                }
+            }
+
+            // Input generator settings (for input nodes - nodes with no incoming edges)
+            if is_input_node {
+                ui.separator();
+                ui.heading("Input Generators");
+
+                // Ensure input_config exists
+                if node.input_config.is_none() {
+                    node.input_config =
+                        Some(crate::simulation::InputNeuronConfig::with_default_generator());
+                }
+
+                if let Some(ref mut config) = node.input_config {
+                    // Combine mode selector
+                    ui.horizontal(|ui| {
+                        ui.label("Combine:");
+                        egui::ComboBox::from_id_salt(format!("combine_mode_{}", node.id.0))
+                            .selected_text(config.combine_mode.label())
+                            .show_ui(ui, |ui| {
+                                for mode in crate::simulation::GeneratorCombineMode::ALL {
+                                    ui.selectable_value(
+                                        &mut config.combine_mode,
+                                        mode,
+                                        mode.label(),
+                                    );
+                                }
+                            });
+                    });
+
+                    ui.add_space(4.0);
+
+                    // List generators
+                    let mut to_remove = None;
+                    for (idx, generator) in config.generators.iter_mut().enumerate() {
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut generator.active, "");
+                                ui.text_edit_singleline(&mut generator.label);
+                                if ui.small_button("🗑").clicked() {
+                                    to_remove = Some(generator.id);
+                                }
+                            });
+
+                            // Pattern selector
+                            ui.horizontal(|ui| {
+                                ui.label("Pattern:");
+                                egui::ComboBox::from_id_salt(format!(
+                                    "pattern_{}_{}",
+                                    node.id.0, idx
+                                ))
+                                .selected_text(generator.pattern.label())
+                                .show_ui(ui, |ui| {
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::AlwaysOn
+                                            ),
+                                            "Always On",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::AlwaysOn;
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::AlwaysOff
+                                            ),
+                                            "Always Off",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::AlwaysOff;
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::Random { .. }
+                                            ),
+                                            "Random",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::Random {
+                                                probability: 0.5,
+                                            };
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::Periodic { .. }
+                                            ),
+                                            "Periodic",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::Periodic {
+                                                period: 10,
+                                                phase: 0,
+                                            };
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::Burst { .. }
+                                            ),
+                                            "Burst",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::Burst {
+                                                burst_length: 3,
+                                                silence_length: 5,
+                                            };
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::Pulse { .. }
+                                            ),
+                                            "Pulse",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::Pulse { duration: 50 };
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                generator.pattern,
+                                                crate::simulation::InputPattern::Poisson { .. }
+                                            ),
+                                            "Poisson",
+                                        )
+                                        .clicked()
+                                    {
+                                        generator.pattern =
+                                            crate::simulation::InputPattern::Poisson {
+                                                rate_hz: 100.0,
+                                            };
+                                    }
+                                });
+                            });
+
+                            // Pattern-specific parameters
+                            match &mut generator.pattern {
+                                crate::simulation::InputPattern::Random { probability } => {
+                                    ui.add(egui::Slider::new(probability, 0.0..=1.0).text("p"));
+                                }
+                                crate::simulation::InputPattern::Periodic { period, phase } => {
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::DragValue::new(period)
+                                                .prefix("T=")
+                                                .range(1..=1000),
+                                        );
+                                        ui.add(
+                                            egui::DragValue::new(phase).prefix("φ=").range(0..=100),
+                                        );
+                                    });
+                                }
+                                crate::simulation::InputPattern::Burst {
+                                    burst_length,
+                                    silence_length,
+                                } => {
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::DragValue::new(burst_length)
+                                                .prefix("on=")
+                                                .range(1..=100),
+                                        );
+                                        ui.add(
+                                            egui::DragValue::new(silence_length)
+                                                .prefix("off=")
+                                                .range(1..=100),
+                                        );
+                                    });
+                                }
+                                crate::simulation::InputPattern::Pulse { duration }
+                                | crate::simulation::InputPattern::Silence { duration } => {
+                                    ui.add(
+                                        egui::DragValue::new(duration)
+                                            .prefix("n=")
+                                            .range(1..=10000),
+                                    );
+                                }
+                                crate::simulation::InputPattern::Poisson { rate_hz } => {
+                                    ui.add(
+                                        egui::Slider::new(rate_hz, 1.0..=1000.0)
+                                            .text("Hz")
+                                            .logarithmic(true),
+                                    );
+                                }
+                                _ => {}
+                            }
+                        });
+                    }
+
+                    // Remove generator if requested
+                    if let Some(id) = to_remove {
+                        config.remove_generator(id);
+                    }
+
+                    // Add generator button
+                    if ui.button("➕ Add Generator").clicked() {
+                        let gen_num = config.generators.len() + 1;
+                        config.add_generator(
+                            format!("Gen {}", gen_num),
+                            crate::simulation::InputPattern::AlwaysOn,
+                        );
+                    }
                 }
             }
         } else {

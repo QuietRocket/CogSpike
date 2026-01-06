@@ -180,6 +180,18 @@ pub struct SimulateState {
     pub(crate) live_plotting: bool,
     pub(crate) record_spikes: bool,
     pub(crate) record_membrane: bool,
+
+    /// Simulation configuration
+    #[serde(default)]
+    pub(crate) config: crate::simulation::SimulationConfig,
+
+    /// Active simulation job (background thread)
+    #[serde(skip)]
+    pub(crate) simulation_job: Option<crate::simulation::SimulationJob>,
+
+    /// Last completed simulation result
+    #[serde(skip)]
+    pub(crate) last_result: Option<crate::simulation::SimulationResult>,
 }
 
 impl Default for SimulateState {
@@ -194,6 +206,9 @@ impl Default for SimulateState {
             live_plotting: true,
             record_spikes: true,
             record_membrane: true,
+            config: crate::simulation::SimulationConfig::default(),
+            simulation_job: None,
+            last_result: None,
         }
     }
 }

@@ -425,33 +425,51 @@ fn screen_to_graph(rect: egui::Rect, pos: egui::Pos2) -> [f32; 2] {
 }
 
 fn simulate_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    // Poll for simulation progress and results
+    poll_simulation_job(app);
+
     ui.horizontal(|ui| {
         ui.label("Network:");
         ui.strong(app.selection.network.as_deref().unwrap_or("Pick a network"));
         ui.separator();
+
+        let has_job = app.simulate.simulation_job.is_some();
+        let can_run = !has_job && app.selection.network.is_some();
+
         if ui
-            .button(if app.simulate.running { "Pause" } else { "Run" })
+            .add_enabled(can_run, egui::Button::new("▶ Run"))
             .clicked()
         {
-            app.simulate.running = !app.simulate.running;
-            let status = if app.simulate.running {
-                "Running"
-            } else {
-                "Paused"
-            };
-            app.push_log(format!("Simulation {status}"));
+            start_simulation(app);
         }
-        if ui.button("Stop").clicked() {
-            app.simulate.running = false;
-            app.simulate.progress = 0.0;
-            app.push_log("Simulation stopped");
+        if ui
+            .add_enabled(has_job, egui::Button::new("⏹ Stop"))
+            .clicked()
+        {
+            if let Some(ref job) = app.simulate.simulation_job {
+                job.request_stop();
+            }
         }
+
         ui.separator();
+
+        // Show progress bar
+        let progress = app.simulate.progress;
         ui.add(
-            egui::ProgressBar::new(app.simulate.progress)
+            egui::ProgressBar::new(progress)
                 .desired_width(160.0)
-                .text("progress"),
+                .text(format!("{:.0}%", progress * 100.0)),
         );
+
+        // Show spike count if available
+        if let Some(ref job) = app.simulate.simulation_job {
+            if let Some(ref prog) = job.latest_progress {
+                ui.label(format!("Spikes: {}", prog.spike_count));
+            }
+        } else if let Some(ref result) = app.simulate.last_result {
+            let total: u32 = result.history.spike_counts.values().sum();
+            ui.label(format!("Spikes: {}", total));
+        }
     });
 
     ui.add_space(6.0);
@@ -463,49 +481,193 @@ fn simulate_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) 
     });
     ui.separator();
 
-    if app.simulate.running {
-        app.simulate.progress = (app.simulate.progress + 0.005).min(1.0);
-        ctx.request_repaint_after(Duration::from_millis(16));
-        if (app.simulate.progress - 1.0).abs() < f32::EPSILON {
-            app.simulate.running = false;
-            app.push_log("Simulation complete (placeholder)");
-        }
+    // Request repaint while simulation is running
+    if app.simulate.simulation_job.is_some() {
+        ctx.request_repaint_after(Duration::from_millis(100));
     }
 
     match app.simulate.tab {
         SimTab::Timeline => timeline_tab(app, ui),
-        SimTab::Raster => raster_tab(ui),
-        SimTab::Potentials => potentials_tab(ui),
-        SimTab::Aggregates => aggregates_tab(ui),
+        SimTab::Raster => raster_tab(app, ui),
+        SimTab::Potentials => potentials_tab(app, ui),
+        SimTab::Aggregates => aggregates_tab(app, ui),
     }
 }
 
-fn timeline_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
-    ui.label("Timeline");
-    ui.add_space(4.0);
-    ui.label("Batch progress (placeholder)");
-    ui.add(egui::Slider::new(&mut app.simulate.duration_ms, 50.0..=1000.0).text("Duration (ms)"));
-    ui.label("Use the inspector on the right to adjust integration step and monitors.");
+fn poll_simulation_job(app: &mut TemplateApp) {
+    if let Some(ref mut job) = app.simulate.simulation_job {
+        // Poll for progress
+        if let Some(progress) = job.poll_progress() {
+            app.simulate.progress = progress.fraction();
+            app.simulate.running = true;
+        }
+
+        // Check for completion
+        if let Some(result) = job.try_get_result() {
+            let total_spikes: u32 = result.history.spike_counts.values().sum();
+            app.push_log(format!(
+                "Simulation complete: {} steps, {} spikes",
+                result.total_steps, total_spikes
+            ));
+            app.simulate.last_result = Some(result);
+            app.simulate.simulation_job = None;
+            app.simulate.running = false;
+            app.simulate.progress = 1.0;
+        }
+    }
 }
 
-fn raster_tab(ui: &mut egui::Ui) {
+fn start_simulation(app: &mut TemplateApp) {
+    // Build config from current settings
+    let mut config = app.simulate.config.clone();
+    config.duration_ms = app.simulate.duration_ms;
+    config.record_spikes = app.simulate.record_spikes;
+    config.record_potentials = app.simulate.record_membrane;
+
+    // Start the job
+    let job = crate::simulation::start_simulation_job(app.design.graph.clone(), config);
+    app.simulate.simulation_job = Some(job);
+    app.simulate.progress = 0.0;
+    app.simulate.running = true;
+    app.push_log(format!(
+        "Simulation started: {} ms",
+        app.simulate.duration_ms
+    ));
+}
+
+fn timeline_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.heading("Simulation Configuration");
+        ui.add_space(8.0);
+
+        // Duration settings
+        ui.group(|ui| {
+            ui.label("⏱ Timing");
+            ui.add(
+                egui::Slider::new(&mut app.simulate.duration_ms, 10.0..=5000.0)
+                    .text("Duration (ms)")
+                    .logarithmic(true),
+            );
+            ui.checkbox(&mut app.simulate.record_spikes, "Record spikes");
+            ui.checkbox(
+                &mut app.simulate.record_membrane,
+                "Record membrane potentials (memory intensive)",
+            );
+        });
+
+        ui.add_space(8.0);
+
+        // Model Configuration
+        ui.group(|ui| {
+            ui.label("🧠 Model Configuration");
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Threshold levels:");
+                ui.add(
+                    egui::Slider::new(&mut app.simulate.config.model.threshold_levels, 1..=10)
+                        .show_value(true),
+                );
+                ui.label("(fewer = faster PRISM)");
+            });
+
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut app.simulate.config.model.enable_arp, "Enable ARP");
+                ui.label(format!(
+                    "({} steps)",
+                    app.design
+                        .graph
+                        .nodes
+                        .first()
+                        .map(|n| n.params.arp)
+                        .unwrap_or(2)
+                ));
+            });
+
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut app.simulate.config.model.enable_rrp, "Enable RRP");
+                ui.label(format!(
+                    "({} steps)",
+                    app.design
+                        .graph
+                        .nodes
+                        .first()
+                        .map(|n| n.params.rrp)
+                        .unwrap_or(4)
+                ));
+            });
+        });
+
+        ui.add_space(8.0);
+
+        // Input Patterns are now in Design tab
+        ui.group(|ui| {
+            ui.label("📊 Input Patterns");
+            ui.add_space(4.0);
+            ui.label("Configure input generators in the Design tab:");
+            ui.label("Select an input neuron → Inspector → Input Generators");
+        });
+
+        ui.add_space(8.0);
+
+        // Seed configuration
+        ui.group(|ui| {
+            ui.label("🎲 Randomness");
+            ui.horizontal(|ui| {
+                let mut use_seed = app.simulate.config.seed.is_some();
+                if ui.checkbox(&mut use_seed, "Fixed seed:").changed() {
+                    app.simulate.config.seed = if use_seed { Some(12345) } else { None };
+                }
+                if let Some(ref mut seed) = app.simulate.config.seed {
+                    ui.add(egui::DragValue::new(seed));
+                } else {
+                    ui.label("(random each run)");
+                }
+            });
+        });
+    });
+}
+
+fn raster_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.label("Raster plot");
     ui.add_space(6.0);
-    ui.label("Would render spikes per neuron over time.");
-    placeholder_plot(ui, "spike raster");
+
+    if let Some(ref result) = app.simulate.last_result {
+        // Draw actual raster plot
+        draw_raster_plot(ui, result, &app.design.graph);
+    } else {
+        ui.label("Run a simulation to see spike raster.");
+        placeholder_plot(ui, "spike raster");
+    }
 }
 
-fn potentials_tab(ui: &mut egui::Ui) {
+fn potentials_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.label("Membrane potentials");
     ui.add_space(6.0);
-    placeholder_plot(ui, "membrane potential traces");
+
+    if let Some(ref result) = app.simulate.last_result {
+        if result.history.potentials.is_empty() {
+            ui.label("Enable 'Record Membrane' before running to see potential traces.");
+        } else {
+            draw_potentials_plot(ui, result, &app.design.graph);
+        }
+    } else {
+        ui.label("Run a simulation to see membrane potential traces.");
+        placeholder_plot(ui, "membrane potential traces");
+    }
 }
 
-fn aggregates_tab(ui: &mut egui::Ui) {
+fn aggregates_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.label("Aggregates");
     ui.add_space(6.0);
-    ui.label("Stats such as firing rate, spike histograms, etc.");
-    placeholder_plot(ui, "population averages");
+
+    if let Some(ref result) = app.simulate.last_result {
+        // Show firing rate table
+        draw_aggregate_stats(ui, result, &app.design.graph);
+    } else {
+        ui.label("Run a simulation to see aggregate statistics.");
+        placeholder_plot(ui, "population averages");
+    }
 }
 
 fn placeholder_plot(ui: &mut egui::Ui, label: &str) {
@@ -526,6 +688,264 @@ fn placeholder_plot(ui: &mut egui::Ui, label: &str) {
         egui::FontId::proportional(15.0),
         egui::Color32::LIGHT_GRAY,
     );
+}
+
+/// Draw a raster plot showing spike events over time.
+fn draw_raster_plot(
+    ui: &mut egui::Ui,
+    result: &crate::simulation::SimulationResult,
+    graph: &crate::snn::graph::SnnGraph,
+) {
+    let desired = egui::vec2(ui.available_width(), 280.0);
+    let (rect, _response) = ui.allocate_at_least(desired, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    // Background
+    painter.rect_filled(rect, 4.0, egui::Color32::from_gray(25));
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+        egui::StrokeKind::Outside,
+    );
+
+    if result.history.spikes.is_empty() {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No spikes recorded",
+            egui::FontId::proportional(15.0),
+            egui::Color32::LIGHT_GRAY,
+        );
+        return;
+    }
+
+    // Layout parameters
+    let margin = 40.0;
+    let plot_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + margin, rect.top() + 20.0),
+        egui::pos2(rect.right() - 20.0, rect.bottom() - 30.0),
+    );
+
+    let neuron_ids: Vec<_> = graph.nodes.iter().map(|n| n.id).collect();
+    let num_neurons = neuron_ids.len();
+
+    if num_neurons == 0 {
+        return;
+    }
+
+    let row_height = plot_rect.height() / num_neurons as f32;
+    let time_scale = plot_rect.width() / result.total_steps as f32;
+
+    // Draw axis labels
+    painter.text(
+        egui::pos2(rect.left() + 10.0, plot_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "Neurons",
+        egui::FontId::proportional(11.0),
+        egui::Color32::GRAY,
+    );
+
+    painter.text(
+        egui::pos2(plot_rect.center().x, rect.bottom() - 10.0),
+        egui::Align2::CENTER_CENTER,
+        format!("Time (0-{:.0}ms)", result.total_time_ms()),
+        egui::FontId::proportional(11.0),
+        egui::Color32::GRAY,
+    );
+
+    // Draw grid lines
+    for i in 0..=num_neurons {
+        let y = plot_rect.top() + i as f32 * row_height;
+        painter.hline(
+            plot_rect.x_range(),
+            y,
+            egui::Stroke::new(0.5, egui::Color32::from_gray(50)),
+        );
+    }
+
+    // Draw spikes
+    for spike in &result.history.spikes {
+        if let Some(row_idx) = neuron_ids.iter().position(|&id| id == spike.neuron_id) {
+            let x = plot_rect.left() + spike.time_step as f32 * time_scale;
+            let y_center = plot_rect.top() + (row_idx as f32 + 0.5) * row_height;
+
+            // Color based on neuron type (input=orange, output=purple, other=cyan)
+            let color = if graph.is_input(spike.neuron_id) {
+                egui::Color32::from_rgb(255, 150, 50)
+            } else {
+                egui::Color32::from_rgb(100, 200, 255)
+            };
+
+            // Draw spike as a small vertical line
+            painter.vline(
+                x,
+                egui::Rangef::new(y_center - row_height * 0.35, y_center + row_height * 0.35),
+                egui::Stroke::new(2.0, color),
+            );
+        }
+    }
+
+    // Draw neuron labels
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        let y = plot_rect.top() + (idx as f32 + 0.5) * row_height;
+        painter.text(
+            egui::pos2(plot_rect.left() - 5.0, y),
+            egui::Align2::RIGHT_CENTER,
+            &node.label,
+            egui::FontId::proportional(10.0),
+            egui::Color32::GRAY,
+        );
+    }
+}
+
+/// Draw membrane potential traces for neurons.
+fn draw_potentials_plot(
+    ui: &mut egui::Ui,
+    result: &crate::simulation::SimulationResult,
+    graph: &crate::snn::graph::SnnGraph,
+) {
+    let desired = egui::vec2(ui.available_width(), 280.0);
+    let (rect, _response) = ui.allocate_at_least(desired, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    // Background
+    painter.rect_filled(rect, 4.0, egui::Color32::from_gray(25));
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+        egui::StrokeKind::Outside,
+    );
+
+    // Layout
+    let margin = 50.0;
+    let plot_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + margin, rect.top() + 20.0),
+        egui::pos2(rect.right() - 20.0, rect.bottom() - 30.0),
+    );
+
+    let p_min = result.config.potential_range.0 as f32;
+    let p_max = result.config.potential_range.1 as f32;
+    let p_range = p_max - p_min;
+
+    // Draw trace for each neuron
+    let colors = [
+        egui::Color32::from_rgb(100, 200, 255),
+        egui::Color32::from_rgb(255, 150, 50),
+        egui::Color32::from_rgb(150, 255, 100),
+        egui::Color32::from_rgb(255, 100, 150),
+        egui::Color32::from_rgb(200, 150, 255),
+    ];
+
+    let mut color_idx = 0;
+    for node in &graph.nodes {
+        if let Some(potentials) = result.history.potentials.get(&node.id) {
+            if potentials.is_empty() {
+                continue;
+            }
+
+            let color = colors[color_idx % colors.len()];
+            color_idx += 1;
+
+            let time_scale = plot_rect.width() / potentials.len() as f32;
+
+            // Draw line segments
+            let points: Vec<egui::Pos2> = potentials
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| {
+                    let x = plot_rect.left() + i as f32 * time_scale;
+                    let y_norm = (p as f32 - p_min) / p_range;
+                    let y = plot_rect.bottom() - y_norm * plot_rect.height();
+                    egui::pos2(x, y)
+                })
+                .collect();
+
+            for i in 1..points.len() {
+                painter.line_segment([points[i - 1], points[i]], egui::Stroke::new(1.5, color));
+            }
+        }
+    }
+
+    // Axis labels
+    painter.text(
+        egui::pos2(rect.left() + 5.0, plot_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "mV",
+        egui::FontId::proportional(11.0),
+        egui::Color32::GRAY,
+    );
+
+    painter.text(
+        egui::pos2(plot_rect.center().x, rect.bottom() - 10.0),
+        egui::Align2::CENTER_CENTER,
+        format!("Time (0-{:.0}ms)", result.total_time_ms()),
+        egui::FontId::proportional(11.0),
+        egui::Color32::GRAY,
+    );
+}
+
+/// Draw aggregate statistics table.
+fn draw_aggregate_stats(
+    ui: &mut egui::Ui,
+    result: &crate::simulation::SimulationResult,
+    graph: &crate::snn::graph::SnnGraph,
+) {
+    let total_time_ms = result.total_time_ms();
+
+    egui::Grid::new("aggregate_stats_grid")
+        .striped(true)
+        .num_columns(3)
+        .show(ui, |ui| {
+            // Header
+            ui.strong("Neuron");
+            ui.strong("Spikes");
+            ui.strong("Firing Rate (Hz)");
+            ui.end_row();
+
+            // Data rows
+            for node in &graph.nodes {
+                let spike_count = result
+                    .history
+                    .spike_counts
+                    .get(&node.id)
+                    .copied()
+                    .unwrap_or(0);
+                let firing_rate = result.history.firing_rate(node.id, total_time_ms);
+
+                ui.label(&node.label);
+                ui.label(format!("{}", spike_count));
+                ui.label(format!("{:.1}", firing_rate));
+                ui.end_row();
+            }
+        });
+
+    ui.add_space(10.0);
+
+    // Summary stats
+    let total_spikes: u32 = result.history.spike_counts.values().sum();
+    let avg_rate: f64 = result
+        .history
+        .spike_counts
+        .values()
+        .map(|&c| (c as f64 / total_time_ms as f64) * 1000.0)
+        .sum::<f64>()
+        / graph.nodes.len().max(1) as f64;
+
+    ui.horizontal(|ui| {
+        ui.label("Total spikes:");
+        ui.strong(format!("{}", total_spikes));
+        ui.separator();
+        ui.label("Avg firing rate:");
+        ui.strong(format!("{:.1} Hz", avg_rate));
+        ui.separator();
+        ui.label("Duration:");
+        ui.strong(format!(
+            "{:.0} ms ({} steps)",
+            total_time_ms, result.total_steps
+        ));
+    });
 }
 
 #[expect(clippy::too_many_lines, clippy::indexing_slicing)]
