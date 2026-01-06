@@ -3,6 +3,7 @@
 //! Generates DTMC (Discrete-Time Markov Chain) models from [`SnnGraph`] for
 //! probabilistic model checking with PRISM.
 
+use crate::simulation::{InputPattern, ModelConfig};
 use crate::snn::graph::{NeuronParams, Node, SnnGraph};
 use std::fmt::Write as _;
 
@@ -15,6 +16,8 @@ pub struct PrismGenConfig {
     pub include_rewards: bool,
     /// Global time bound for bounded properties.
     pub time_bound: Option<u32>,
+    /// Model configuration (threshold levels, refractory toggles).
+    pub model: ModelConfig,
 }
 
 impl Default for PrismGenConfig {
@@ -23,6 +26,7 @@ impl Default for PrismGenConfig {
             potential_range: (-500, 500),
             include_rewards: true,
             time_bound: Some(100),
+            model: ModelConfig::default(),
         }
     }
 }
@@ -54,7 +58,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     writeln!(out).ok();
 
     // Threshold formulas
-    write_threshold_formulas(&mut out, params);
+    write_threshold_formulas(&mut out, params, config);
     writeln!(out).ok();
 
     // Weight constants for each edge
@@ -92,7 +96,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     }
 
     // Labels for common properties
-    write_labels(&mut out, graph);
+    write_labels(&mut out, graph, config);
 
     out
 }
@@ -116,11 +120,13 @@ fn write_global_constants(out: &mut String, params: &NeuronParams, config: &Pris
     }
 }
 
-fn write_threshold_formulas(out: &mut String, params: &NeuronParams) {
-    writeln!(out, "// Firing probability thresholds (fraction of P_rth)").ok();
-    for (i, th) in params.thresholds.iter().enumerate() {
-        // thresholds are 0-100, convert to fraction for formula
-        writeln!(out, "formula threshold{} = {} * P_rth / 100;", i + 1, th).ok();
+fn write_threshold_formulas(out: &mut String, params: &NeuronParams, config: &PrismGenConfig) {
+    let levels = config.model.threshold_levels.clamp(1, 10);
+    writeln!(out, "// Firing probability thresholds ({levels} levels)").ok();
+    for i in 1..=levels {
+        // Generate thresholds matching simulation.rs generate_thresholds()
+        let th = (i as u32 * params.p_rth as u32) / levels as u32;
+        writeln!(out, "formula threshold{i} = {th} * P_rth / 100;").ok();
     }
 }
 
@@ -236,135 +242,242 @@ fn write_input_module(out: &mut String, graph: &SnnGraph) {
 
     writeln!(out, "module Inputs").ok();
 
-    // Input variables (constant 1 for now, could be extended to patterns)
+    // Input variables
     for input in &inputs {
-        writeln!(out, "  x{} : [0..1] init 1;", input.id.0).ok();
+        writeln!(out, "  x{} : [0..1] init 0;", input.id.0).ok();
+    }
+    writeln!(out).ok();
+
+    // Generate tick action for each input based on its pattern
+    writeln!(out, "  // Input pattern transitions").ok();
+
+    // Collect all input updates
+    let mut input_updates: Vec<(u32, String)> = Vec::new();
+
+    for input in &inputs {
+        let n = input.id.0;
+        let update = if let Some(ref cfg) = input.input_config {
+            // Use first active generator's pattern (single generator support for now)
+            if let Some(generator) = cfg.generators.iter().find(|g| g.active) {
+                match &generator.pattern {
+                    InputPattern::AlwaysOn => format!("(x{n}' = 1)"),
+                    InputPattern::AlwaysOff => format!("(x{n}' = 0)"),
+                    InputPattern::Random { probability } => {
+                        // Generate probabilistic transition
+                        format!("RAND:{probability}:{n}")
+                    }
+                    // For other patterns, default to always on (future enhancement)
+                    _ => format!("(x{n}' = 1)"),
+                }
+            } else {
+                // No active generators, default off
+                format!("(x{n}' = 0)")
+            }
+        } else {
+            // No config, default to always on (legacy behavior)
+            format!("(x{n}' = 1)")
+        };
+        input_updates.push((n, update));
     }
 
-    // Tick action maintains inputs
-    write!(out, "  [tick] true -> 1: ").ok();
-    for (i, input) in inputs.iter().enumerate() {
-        if i > 0 {
-            write!(out, " & ").ok();
+    // Check if any inputs have random patterns
+    let has_random = input_updates.iter().any(|(_, u)| u.starts_with("RAND:"));
+
+    if has_random {
+        // Generate separate transitions for each random input
+        for (n, update) in &input_updates {
+            if update.starts_with("RAND:") {
+                let parts: Vec<&str> = update.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(prob) = parts[1].parse::<f64>() {
+                        let no_spike = 1.0 - prob;
+                        writeln!(
+                            out,
+                            "  [tick] true -> {:.4}:(x{n}' = 1) + {:.4}:(x{n}' = 0);",
+                            prob, no_spike
+                        )
+                        .ok();
+                    }
+                }
+            } else {
+                // Non-random pattern, emit simple update
+                writeln!(out, "  [tick] true -> 1: {};", update).ok();
+            }
         }
-        write!(out, "(x{}' = 1)", input.id.0).ok();
+    } else {
+        // All inputs are deterministic, combine into one action
+        write!(out, "  [tick] true -> 1: ").ok();
+        for (i, (_, update)) in input_updates.iter().enumerate() {
+            if i > 0 {
+                write!(out, " & ").ok();
+            }
+            write!(out, "{update}").ok();
+        }
+        writeln!(out, ";").ok();
     }
-    writeln!(out, ";").ok();
+
     writeln!(out, "endmodule").ok();
 }
 
-#[expect(clippy::needless_range_loop, clippy::indexing_slicing)]
-fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, _config: &PrismGenConfig) {
+#[expect(clippy::needless_range_loop)]
+fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config: &PrismGenConfig) {
     let n = node.id.0;
     let params = &node.params;
+    let model = &config.model;
+    let levels = model.threshold_levels.clamp(1, 10);
+
+    // Determine max state based on enabled refractory periods
+    let max_state = if model.enable_arp && model.enable_rrp {
+        2
+    } else if model.enable_arp {
+        1
+    } else {
+        0
+    };
 
     writeln!(out, "module Neuron{n}").ok();
-    writeln!(out, "  // State: 0=normal, 1=ARP, 2=RRP").ok();
-    writeln!(out, "  s{n} : [0..2] init 0;").ok();
-    writeln!(out, "  aref{n} : [0..ARP] init 0;").ok();
-    writeln!(out, "  rref{n} : [0..RRP] init 0;").ok();
+    writeln!(
+        out,
+        "  // State: 0=normal{}{}",
+        if model.enable_arp { ", 1=ARP" } else { "" },
+        if model.enable_rrp { ", 2=RRP" } else { "" }
+    )
+    .ok();
+    writeln!(out, "  s{n} : [0..{max_state}] init 0;").ok();
+
+    if model.enable_arp {
+        writeln!(out, "  aref{n} : [0..ARP] init 0;").ok();
+    }
+    if model.enable_rrp {
+        writeln!(out, "  rref{n} : [0..RRP] init 0;").ok();
+    }
+
     writeln!(out, "  y{n} : [0..1] init 0;  // spike output").ok();
     writeln!(
         out,
         "  p{} : [P_MIN..P_MAX] init {};  // membrane potential",
-        n,
-        params.p_rest // Already in 0-100 range
+        n, params.p_rest
     )
     .ok();
     writeln!(out).ok();
 
-    // Normal period - spike action
+    // Generate probability step size based on configured levels
+    let step = 1.0 / levels as f64;
+
+    // Normal period - spike action (what happens after a spike is decided)
     writeln!(out, "  // Normal period - spike action").ok();
-    writeln!(
-        out,
-        "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
-    )
-    .ok();
+    if model.enable_arp {
+        writeln!(
+            out,
+            "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
+        ).ok();
+    } else {
+        // No ARP: spike and stay in normal state
+        writeln!(
+            out,
+            "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);"
+        )
+        .ok();
+    }
 
     // Normal period - probabilistic transitions based on thresholds
-    writeln!(out, "  // Normal period - probabilistic firing").ok();
+    writeln!(
+        out,
+        "  // Normal period - probabilistic firing ({levels} levels)"
+    )
+    .ok();
 
     // Below threshold1: no spike
     writeln!(
         out,
         "  [tick] s{n} = 0 & y{n} = 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
-    )
-    .ok();
+    ).ok();
 
-    // Threshold-based probabilistic firing (10 levels)
-    let probs = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    for i in 0..9 {
-        let no_spike_prob = 1.0 - probs[i];
-        let spike_prob = probs[i];
+    // Threshold-based probabilistic firing (variable levels)
+    for i in 0..(levels - 1) {
+        let prob = (i + 1) as f64 * step;
+        let no_spike_prob = 1.0 - prob;
+        let spike_prob = prob;
         writeln!(
             out,
-            "  [tick] s{} = 0 & y{} = 0 & p{} > threshold{} & p{} <= threshold{} -> {:.1}:(y{}' = 0) & (p{}' = newPotential_{}) + {:.1}:(y{}' = 1);",
-            n, n, n, i + 1, n, i + 2, no_spike_prob, n, n, n, spike_prob, n
-        )
-        .ok();
+            "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1);",
+            i + 1, i + 2, no_spike_prob, spike_prob
+        ).ok();
     }
 
-    // Above threshold10: always spike
+    // Above top threshold: always spike
     writeln!(
         out,
-        "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold10 -> 1.0:(y{n}' = 1);"
+        "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold{levels} -> 1.0:(y{n}' = 1);"
     )
     .ok();
 
     writeln!(out).ok();
 
-    // Absolute refractory period
-    writeln!(out, "  // Absolute refractory period").ok();
-    writeln!(
-        out,
-        "  [tick] s{n} = 1 & aref{n} > 0 -> (aref{n}' = aref{n} - 1) & (y{n}' = 0) & (p{n}' = newPotential_{n});"
-    )
-    .ok();
-    writeln!(
-        out,
-        "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 2) & (rref{n}' = RRP) & (y{n}' = 0);"
-    )
-    .ok();
-
-    writeln!(out).ok();
-
-    // Relative refractory period
-    writeln!(
-        out,
-        "  // Relative refractory period (alpha-scaled probabilities)"
-    )
-    .ok();
-    writeln!(
-        out,
-        "  [spike{n}] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
-    )
-    .ok();
-
-    // RRP probabilistic firing (alpha-scaled)
-    writeln!(
-        out,
-        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
-    )
-    .ok();
-
-    for i in 0..9 {
-        let base_spike = probs[i];
-        let no_spike_prob = 1.0 - (params.alpha as f64 * base_spike);
-        let spike_prob = params.alpha as f64 * base_spike;
+    // Absolute refractory period (only if enabled)
+    if model.enable_arp {
+        writeln!(out, "  // Absolute refractory period").ok();
         writeln!(
             out,
-            "  [tick] s{} = 2 & y{} = 0 & rref{} > 0 & p{} > threshold{} & p{} <= threshold{} -> {:.3}:(y{}' = 0) & (p{}' = newPotential_{}) & (rref{}' = rref{} - 1) + {:.3}:(y{}' = 1);",
-            n, n, n, n, i + 1, n, i + 2, no_spike_prob, n, n, n, n, n, spike_prob, n
-        )
-        .ok();
+            "  [tick] s{n} = 1 & aref{n} > 0 -> (aref{n}' = aref{n} - 1) & (y{n}' = 0) & (p{n}' = newPotential_{n});"
+        ).ok();
+
+        if model.enable_rrp {
+            // ARP finished -> RRP
+            writeln!(
+                out,
+                "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 2) & (rref{n}' = RRP) & (y{n}' = 0);"
+            )
+            .ok();
+        } else {
+            // ARP finished -> Normal (skip RRP)
+            writeln!(
+                out,
+                "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 0) & (y{n}' = 0);"
+            )
+            .ok();
+        }
+
+        writeln!(out).ok();
     }
 
-    // RRP ended - return to normal
-    writeln!(
-        out,
-        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
-    )
-    .ok();
+    // Relative refractory period (only if both ARP and RRP enabled)
+    if model.enable_arp && model.enable_rrp {
+        let alpha = params.alpha as f64 / 100.0;
+
+        writeln!(
+            out,
+            "  // Relative refractory period (alpha-scaled probabilities)"
+        )
+        .ok();
+        writeln!(
+            out,
+            "  [spike{n}] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
+        ).ok();
+
+        // RRP probabilistic firing (alpha-scaled)
+        writeln!(
+            out,
+            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
+        ).ok();
+
+        for i in 0..(levels - 1) {
+            let base_prob = (i + 1) as f64 * step;
+            let spike_prob = alpha * base_prob;
+            let no_spike_prob = 1.0 - spike_prob;
+            writeln!(
+                out,
+                "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1);",
+                i + 1, i + 2, no_spike_prob, spike_prob
+            ).ok();
+        }
+
+        // RRP ended - return to normal
+        writeln!(
+            out,
+            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
+        ).ok();
+    }
 
     writeln!(out, "endmodule").ok();
 }
@@ -412,21 +525,26 @@ fn write_rewards(out: &mut String, graph: &SnnGraph) {
     }
 }
 
-fn write_labels(out: &mut String, graph: &SnnGraph) {
+fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
     writeln!(out, "// Labels for PCTL properties").ok();
+    let model = &config.model;
 
     for node in &graph.nodes {
         // Skip Input nodes - they don't have neuron modules
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "label \"spike{}\" = (y{} = 1);", node.id.0, node.id.0).ok();
-        writeln!(
-            out,
-            "label \"refractory{}\" = (s{} = 1 | s{} = 2);",
-            node.id.0, node.id.0, node.id.0
-        )
-        .ok();
+        let n = node.id.0;
+        writeln!(out, "label \"spike{n}\" = (y{n} = 1);").ok();
+
+        // Only generate refractory label if ARP is enabled
+        if model.enable_arp {
+            if model.enable_rrp {
+                writeln!(out, "label \"refractory{n}\" = (s{n} = 1 | s{n} = 2);").ok();
+            } else {
+                writeln!(out, "label \"refractory{n}\" = (s{n} = 1);").ok();
+            }
+        }
     }
 
     // Output neurons
@@ -519,6 +637,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simulation::ModelConfig;
     use crate::snn::graph::SnnGraph;
 
     #[test]
@@ -541,5 +660,112 @@ mod tests {
 
         assert!(pctl.contains("P=?"));
         assert!(pctl.contains("F<=T"));
+    }
+
+    #[test]
+    fn test_variable_threshold_levels() {
+        let graph = SnnGraph::demo_layout();
+
+        // Test with 5 threshold levels
+        let config = PrismGenConfig {
+            model: ModelConfig {
+                threshold_levels: 5,
+                enable_arp: true,
+                enable_rrp: true,
+            },
+            ..Default::default()
+        };
+        let prism = generate_prism_model(&graph, &config);
+
+        // Should contain 5 threshold formulas
+        assert!(prism.contains("threshold1"));
+        assert!(prism.contains("threshold5"));
+        assert!(!prism.contains("threshold6"));
+        assert!(prism.contains("// Firing probability thresholds (5 levels)"));
+    }
+
+    #[test]
+    fn test_arp_disabled() {
+        let graph = SnnGraph::demo_layout();
+
+        let config = PrismGenConfig {
+            model: ModelConfig {
+                threshold_levels: 10,
+                enable_arp: false,
+                enable_rrp: false,
+            },
+            ..Default::default()
+        };
+        let prism = generate_prism_model(&graph, &config);
+
+        // State should only go to 0 (normal)
+        assert!(prism.contains("s2 : [0..0] init 0;"));
+        // Should NOT have aref variable declaration
+        assert!(!prism.contains("aref2 : [0..ARP]"));
+        // Should NOT have refractory label (since ARP is disabled)
+        assert!(!prism.contains("label \"refractory2\""));
+    }
+
+    #[test]
+    fn test_rrp_disabled() {
+        let graph = SnnGraph::demo_layout();
+
+        let config = PrismGenConfig {
+            model: ModelConfig {
+                threshold_levels: 10,
+                enable_arp: true,
+                enable_rrp: false,
+            },
+            ..Default::default()
+        };
+        let prism = generate_prism_model(&graph, &config);
+
+        // State should go to 0..1 (normal, ARP)
+        assert!(prism.contains("s2 : [0..1] init 0;"));
+        // Should have ARP variable
+        assert!(prism.contains("aref2 : [0..ARP] init 0;"));
+        // Should NOT have RRP variable
+        assert!(!prism.contains("rref2 : [0..RRP]"));
+        // Refractory label should only reference s=1
+        assert!(prism.contains("label \"refractory2\" = (s2 = 1);"));
+    }
+
+    #[test]
+    fn test_rrp_probabilities_are_valid() {
+        // Regression test: RRP probabilities must be in [0, 1]
+        // Previously, alpha was not divided by 100, causing negative probabilities
+        let graph = SnnGraph::demo_layout();
+        let config = PrismGenConfig::default();
+        let prism = generate_prism_model(&graph, &config);
+
+        // Should NOT contain negative probabilities
+        assert!(
+            !prism.contains("-> -"),
+            "RRP should not have negative probabilities"
+        );
+
+        // Should NOT contain probabilities > 1 (except 1.0 which is valid)
+        // Check for patterns like "5.000:" or "10.000:" which are invalid
+        for line in prism.lines() {
+            if line.contains("s2 = 2") && line.contains("->") {
+                // RRP transition line
+                assert!(!line.contains("+ 5."), "RRP probability should not be 5.x");
+                assert!(
+                    !line.contains("+ 10."),
+                    "RRP probability should not be 10.x"
+                );
+                assert!(
+                    !line.contains("-4."),
+                    "RRP probability should not be negative"
+                );
+            }
+        }
+
+        // Verify alpha-scaled probabilities are correct (alpha=0.5, first level=0.1)
+        // Expected: spike_prob = 0.5 * 0.1 = 0.05, no_spike = 0.95
+        assert!(
+            prism.contains("0.9500") || prism.contains("0.95"),
+            "RRP first level should have ~0.95 no-spike probability"
+        );
     }
 }
