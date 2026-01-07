@@ -364,18 +364,19 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     // Generate probability step size based on configured levels
     let step = 1.0 / levels as f64;
 
-    // Normal period - spike action (what happens after a spike is decided)
-    writeln!(out, "  // Normal period - spike action").ok();
+    // Normal period - spike reset (during tick after spike was set)
+    // Note: We handle spike reset during [tick] to avoid deadlock with Inputs module
+    writeln!(out, "  // Normal period - spike reset").ok();
     if model.enable_arp {
         writeln!(
             out,
-            "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
+            "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
         ).ok();
     } else {
         // No ARP: spike and stay in normal state
         writeln!(
             out,
-            "  [spike{n}] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);"
+            "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);"
         )
         .ok();
     }
@@ -450,9 +451,10 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             "  // Relative refractory period (alpha-scaled probabilities)"
         )
         .ok();
+        // RRP spike reset (during tick after spike was set)
         writeln!(
             out,
-            "  [spike{n}] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
+            "  [tick] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
         ).ok();
 
         // RRP probabilistic firing (alpha-scaled)
@@ -472,6 +474,15 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             ).ok();
         }
 
+        // RRP above max threshold: spike with alpha-scaled probability (alpha * 1.0 = alpha)
+        let max_spike_prob = alpha;
+        let max_no_spike_prob = 1.0 - alpha;
+        writeln!(
+            out,
+            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > threshold{levels} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1);",
+            max_no_spike_prob, max_spike_prob
+        ).ok();
+
         // RRP ended - return to normal
         writeln!(
             out,
@@ -484,6 +495,11 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
 
 fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Synapse transfer modules (spike propagation)").ok();
+    writeln!(
+        out,
+        "// Transfer variables sample source neuron's y output during tick"
+    )
+    .ok();
 
     for edge in &graph.edges {
         // Skip edges from Input nodes (they don't need transfer modules)
@@ -491,18 +507,14 @@ fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
             continue;
         }
 
+        // Transfer module captures source neuron's spike state (y) during each tick.
+        // This replaces the previous [spike] action to avoid synchronization deadlocks.
         writeln!(out, "module Transfer{}_{}", edge.from.0, edge.to.0).ok();
         writeln!(out, "  z{}_{} : [0..1] init 0;", edge.from.0, edge.to.0).ok();
         writeln!(
             out,
-            "  [spike{}] true -> 1: (z{}_{}' = 1);",
-            edge.from.0, edge.from.0, edge.to.0
-        )
-        .ok();
-        writeln!(
-            out,
-            "  [tick] true -> 1: (z{}_{}' = 0);",
-            edge.from.0, edge.to.0
+            "  [tick] true -> (z{}_{}' = y{});",
+            edge.from.0, edge.to.0, edge.from.0
         )
         .ok();
         writeln!(out, "endmodule").ok();
@@ -650,7 +662,6 @@ mod tests {
         assert!(prism.contains("module Inputs"));
         assert!(prism.contains("module Neuron"));
         assert!(prism.contains("[tick]"));
-        assert!(prism.contains("[spike"));
     }
 
     #[test]
