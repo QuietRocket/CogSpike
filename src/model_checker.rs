@@ -101,9 +101,16 @@ impl LocalPrism {
             let bin = home.join("bin").join("prism");
             (bin, Some(home))
         } else {
-            let prism_path = provided.to_path_buf();
+            // If provided path has no directory component (bare command like "prism"),
+            // try to resolve it via `which` to get the full path from the shell's PATH.
+            let resolved = if provided.components().count() == 1 {
+                Self::resolve_from_path(provided).unwrap_or_else(|| provided.to_path_buf())
+            } else {
+                provided.to_path_buf()
+            };
+
             // If the executable lives in a bin/ folder, PRISM_HOME should be its parent.
-            let prism_home = prism_path
+            let prism_home = resolved
                 .parent()
                 .and_then(|p| {
                     if p.file_name().is_some_and(|name| name == "bin") {
@@ -113,13 +120,32 @@ impl LocalPrism {
                     }
                 })
                 .map(|p| p.to_path_buf());
-            (prism_path, prism_home)
+            (resolved, prism_home)
         };
 
         Self {
             prism_path,
             prism_home,
         }
+    }
+
+    /// Resolve a bare command name to its full path using the shell's PATH.
+    /// This is needed because GUI apps on macOS don't inherit the user's shell PATH.
+    fn resolve_from_path(cmd: &Path) -> Option<PathBuf> {
+        // Use login shell to get the user's full PATH environment
+        let output = Command::new("/bin/zsh")
+            .args(["-l", "-c", &format!("which {}", cmd.display())])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            let path = path_str.trim();
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
+        None
     }
 
     #[expect(clippy::unused_self)]
