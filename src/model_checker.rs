@@ -16,10 +16,163 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use tempfile::TempDir;
 
+/// PRISM engine selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PrismEngine {
+    /// MTBDD-based engine (symbolic).
+    Mtbdd,
+    /// Sparse matrix engine.
+    Sparse,
+    /// Hybrid engine (default PRISM choice).
+    #[default]
+    Hybrid,
+    /// Explicit state engine.
+    Explicit,
+    /// Exact (arbitrary precision) engine.
+    Exact,
+}
+
+impl PrismEngine {
+    pub const ALL: [PrismEngine; 5] = [
+        PrismEngine::Hybrid,
+        PrismEngine::Sparse,
+        PrismEngine::Explicit,
+        PrismEngine::Mtbdd,
+        PrismEngine::Exact,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PrismEngine::Hybrid => "Hybrid (default)",
+            PrismEngine::Sparse => "Sparse",
+            PrismEngine::Explicit => "Explicit",
+            PrismEngine::Mtbdd => "MTBDD",
+            PrismEngine::Exact => "Exact",
+        }
+    }
+
+    pub fn to_arg(self) -> Option<&'static str> {
+        match self {
+            PrismEngine::Hybrid => None, // Default, no arg needed
+            PrismEngine::Sparse => Some("-sparse"),
+            PrismEngine::Explicit => Some("-explicit"),
+            PrismEngine::Mtbdd => Some("-mtbdd"),
+            PrismEngine::Exact => Some("-exact"),
+        }
+    }
+}
+
+/// PRISM automatic heuristic mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PrismHeuristic {
+    /// No automatic tuning (default).
+    #[default]
+    None,
+    /// Optimize for speed.
+    Speed,
+    /// Optimize for memory usage.
+    Memory,
+}
+
+impl PrismHeuristic {
+    pub const ALL: [PrismHeuristic; 3] = [
+        PrismHeuristic::None,
+        PrismHeuristic::Speed,
+        PrismHeuristic::Memory,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PrismHeuristic::None => "None (manual)",
+            PrismHeuristic::Speed => "Speed",
+            PrismHeuristic::Memory => "Memory",
+        }
+    }
+
+    pub fn to_arg(self) -> Option<&'static str> {
+        match self {
+            PrismHeuristic::None => None,
+            PrismHeuristic::Speed => Some("-heuristic speed"),
+            PrismHeuristic::Memory => Some("-heuristic memory"),
+        }
+    }
+}
+
+/// Structured PRISM engine and solver options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrismEngineOptions {
+    /// PRISM engine selection.
+    pub engine: PrismEngine,
+    /// Automatic heuristic mode.
+    pub heuristic: PrismHeuristic,
+    /// Java maximum heap size (e.g., "1g", "4g").
+    pub java_max_mem: String,
+    /// Java stack size (e.g., "4m").
+    pub java_stack: String,
+    /// CUDD maximum memory (e.g., "1g").
+    pub cudd_max_mem: String,
+    /// Convergence epsilon for iterative methods.
+    pub epsilon: Option<f64>,
+    /// Maximum iterations for iterative methods.
+    pub max_iters: Option<u32>,
+}
+
+impl Default for PrismEngineOptions {
+    fn default() -> Self {
+        Self {
+            engine: PrismEngine::default(),
+            heuristic: PrismHeuristic::default(),
+            java_max_mem: "1g".to_owned(),
+            java_stack: "4m".to_owned(),
+            cudd_max_mem: "1g".to_owned(),
+            epsilon: None,
+            max_iters: None,
+        }
+    }
+}
+
+impl PrismEngineOptions {
+    /// Convert options to PRISM CLI arguments.
+    pub fn to_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        // Engine selection
+        if let Some(engine_arg) = self.engine.to_arg() {
+            args.push(engine_arg.to_owned());
+        }
+
+        // Heuristic mode
+        if let Some(heuristic_arg) = self.heuristic.to_arg() {
+            // Split "-heuristic speed" into two args
+            for part in heuristic_arg.split_whitespace() {
+                args.push(part.to_owned());
+            }
+        }
+
+        // Memory settings
+        args.push(format!("-javamaxmem {}", self.java_max_mem));
+        args.push(format!("-javastack {}", self.java_stack));
+        args.push(format!("-cuddmaxmem {}", self.cudd_max_mem));
+
+        // Convergence settings
+        if let Some(eps) = self.epsilon {
+            args.push(format!("-epsilon {eps}"));
+        }
+        if let Some(iters) = self.max_iters {
+            args.push(format!("-maxiters {iters}"));
+        }
+
+        args
+    }
+}
+
 /// Options forwarded to PRISM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrismOptions {
     pub timeout_ms: u64,
+    /// Structured engine options.
+    pub engine_options: PrismEngineOptions,
+    /// Additional raw CLI arguments (for advanced use).
     pub extra_args: Vec<String>,
 }
 
@@ -27,6 +180,7 @@ impl Default for PrismOptions {
     fn default() -> Self {
         Self {
             timeout_ms: Duration::from_secs(30).as_millis() as u64,
+            engine_options: PrismEngineOptions::default(),
             extra_args: vec![],
         }
     }
@@ -226,6 +380,7 @@ impl ModelChecker for LocalPrism {
         });
 
         for formula in &request.properties {
+            let opts = &request.options.engine_options;
             let mut cmd = if use_direct_java {
                 let mut c = Command::new("java");
                 if let (Some(home), Some(cp)) = (prism_home, classpath.as_ref()) {
@@ -247,8 +402,9 @@ impl ModelChecker for LocalPrism {
                     ));
                     c.arg("-classpath").arg(cp);
                 }
-                c.arg("-Xmx1g")
-                    .arg("-Xss4m")
+                // Use engine_options for Java memory settings
+                c.arg(format!("-Xmx{}", opts.java_max_mem))
+                    .arg(format!("-Xss{}", opts.java_stack))
                     .arg("-Djava.awt.headless=true")
                     .arg("prism.PrismCL");
                 c
@@ -262,13 +418,19 @@ impl ModelChecker for LocalPrism {
                 c
             };
 
+            // Add model and property files
             cmd.arg(&model_path)
                 .arg(&props_path)
                 .arg("-pf")
-                .arg(formula)
-                .args(&request.options.extra_args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+                .arg(formula);
+
+            // Add structured engine options
+            cmd.args(opts.to_args());
+
+            // Add any extra user-provided args
+            cmd.args(&request.options.extra_args);
+
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
             let output = cmd
                 .output()

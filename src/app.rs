@@ -1,6 +1,8 @@
 use crate::{
     learning::{LearningConfig, LearningState, TrainingProgress, TrainingResult},
-    model_checker::{CheckerJob, ModelChecker, PrismOptions, PrismRequest, PrismResponse},
+    model_checker::{
+        CheckerJob, ModelChecker, PrismEngineOptions, PrismOptions, PrismRequest, PrismResponse,
+    },
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
         prism_gen::{PrismGenConfig, generate_prism_model},
@@ -304,6 +306,9 @@ pub struct VerifyState {
     pub(crate) training_job: Option<TrainingJob>,
     #[serde(skip)]
     pub(crate) last_training_result: Option<TrainingResult>,
+    /// PRISM engine and solver options.
+    #[serde(default)]
+    pub(crate) prism_options: PrismEngineOptions,
 }
 
 impl Default for VerifyState {
@@ -325,6 +330,7 @@ impl Default for VerifyState {
             learning_config: LearningConfig::default(),
             training_job: None,
             last_training_result: None,
+            prism_options: PrismEngineOptions::default(),
         }
     }
 }
@@ -456,7 +462,10 @@ impl TemplateApp {
         PrismRequest {
             model,
             properties: vec![formula],
-            options: PrismOptions::default(),
+            options: PrismOptions {
+                engine_options: self.verify.prism_options.clone(),
+                ..Default::default()
+            },
         }
     }
 

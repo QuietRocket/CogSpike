@@ -77,6 +77,83 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         if !app.design.graph.model_config.enable_arp {
             app.design.graph.model_config.enable_rrp = false;
         }
+
+        ui.separator();
+        ui.label("Global Neuron Parameters");
+
+        egui::Grid::new("global_neuron_params")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("P_rth (resting threshold)");
+                ui.add(
+                    egui::DragValue::new(&mut app.design.graph.model_config.p_rth)
+                        .speed(1)
+                        .range(1..=100)
+                        .suffix("%"),
+                );
+                ui.end_row();
+
+                ui.label("P_rest (resting potential)");
+                ui.add(
+                    egui::DragValue::new(&mut app.design.graph.model_config.p_rest)
+                        .speed(1)
+                        .range(0..=100)
+                        .suffix("%"),
+                );
+                ui.end_row();
+
+                ui.label("P_reset (after spike)");
+                ui.add(
+                    egui::DragValue::new(&mut app.design.graph.model_config.p_reset)
+                        .speed(1)
+                        .range(0..=100)
+                        .suffix("%"),
+                );
+                ui.end_row();
+
+                ui.label("Leak rate");
+                ui.add(
+                    egui::DragValue::new(&mut app.design.graph.model_config.leak_r)
+                        .speed(1)
+                        .range(0..=100)
+                        .suffix("%"),
+                );
+                ui.end_row();
+
+                // ARP duration (only if ARP enabled)
+                if app.design.graph.model_config.enable_arp {
+                    ui.label("ARP duration");
+                    ui.add(
+                        egui::DragValue::new(&mut app.design.graph.model_config.arp)
+                            .speed(1)
+                            .range(1..=256)
+                            .suffix(" steps"),
+                    );
+                    ui.end_row();
+                }
+
+                // RRP duration and alpha (only if RRP enabled)
+                if app.design.graph.model_config.enable_rrp {
+                    ui.label("RRP duration");
+                    ui.add(
+                        egui::DragValue::new(&mut app.design.graph.model_config.rrp)
+                            .speed(1)
+                            .range(1..=256)
+                            .suffix(" steps"),
+                    );
+                    ui.end_row();
+
+                    ui.label("Alpha (RRP firing scale)");
+                    ui.add(
+                        egui::DragValue::new(&mut app.design.graph.model_config.alpha)
+                            .speed(1)
+                            .range(0..=100)
+                            .suffix("%"),
+                    );
+                    ui.end_row();
+                }
+            });
     });
 
     if let Some(node_id) = app.design.selected_node {
@@ -523,4 +600,93 @@ fn verify_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
     ui.separator();
     ui.checkbox(&mut app.verify.show_model_text, "Show PRISM model");
+
+    // PRISM Engine Configuration
+    ui.separator();
+    ui.collapsing("PRISM Engine Options", |ui| {
+        let opts = &mut app.verify.prism_options;
+
+        // Engine selection
+        ui.horizontal(|ui| {
+            ui.label("Engine:");
+            egui::ComboBox::from_id_salt("prism_engine")
+                .selected_text(opts.engine.label())
+                .show_ui(ui, |ui| {
+                    for engine in crate::model_checker::PrismEngine::ALL {
+                        ui.selectable_value(&mut opts.engine, engine, engine.label());
+                    }
+                });
+        });
+
+        // Heuristic mode
+        ui.horizontal(|ui| {
+            ui.label("Heuristic:");
+            egui::ComboBox::from_id_salt("prism_heuristic")
+                .selected_text(opts.heuristic.label())
+                .show_ui(ui, |ui| {
+                    for heuristic in crate::model_checker::PrismHeuristic::ALL {
+                        ui.selectable_value(&mut opts.heuristic, heuristic, heuristic.label());
+                    }
+                });
+        });
+
+        ui.add_space(4.0);
+        ui.label("Memory Settings");
+
+        egui::Grid::new("prism_memory_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Java heap:");
+                ui.text_edit_singleline(&mut opts.java_max_mem);
+                ui.end_row();
+
+                ui.label("Java stack:");
+                ui.text_edit_singleline(&mut opts.java_stack);
+                ui.end_row();
+
+                ui.label("CUDD memory:");
+                ui.text_edit_singleline(&mut opts.cudd_max_mem);
+                ui.end_row();
+            });
+
+        ui.add_space(4.0);
+        ui.label("Convergence (optional)");
+
+        // Epsilon
+        let mut has_epsilon = opts.epsilon.is_some();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut has_epsilon, "Epsilon:");
+            if has_epsilon {
+                let eps = opts.epsilon.get_or_insert(1e-6);
+                ui.add(egui::DragValue::new(eps).speed(1e-7).range(1e-12..=0.1));
+            } else {
+                opts.epsilon = None;
+                ui.label("(default)");
+            }
+        });
+
+        // Max iterations
+        let mut has_max_iters = opts.max_iters.is_some();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut has_max_iters, "Max iters:");
+            if has_max_iters {
+                let iters = opts.max_iters.get_or_insert(10000);
+                ui.add(
+                    egui::DragValue::new(iters)
+                        .speed(100)
+                        .range(100..=1_000_000),
+                );
+            } else {
+                opts.max_iters = None;
+                ui.label("(default)");
+            }
+        });
+
+        // Reset button
+        ui.add_space(4.0);
+        if ui.button("Reset to defaults").clicked() {
+            *opts = crate::model_checker::PrismEngineOptions::default();
+        }
+    });
 }
