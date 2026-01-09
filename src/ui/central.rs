@@ -20,13 +20,13 @@ const SELECT_STROKE_COLOR: egui::Color32 = egui::Color32::from_rgb(0, 140, 255);
 
 pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     match app.mode {
-        Mode::Design => design_view(app, ui),
+        Mode::Design => design_view(app, ui, ctx),
         Mode::Simulate => simulate_view(app, ui, ctx),
         Mode::Verify => verify_view(app, ui, ctx),
     }
 }
 
-fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
+fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.horizontal(|ui| {
         ui.label("Palette:");
         for kind in NodeKind::palette() {
@@ -68,7 +68,7 @@ fn design_view(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
     let pointer_pos = response.interact_pointer_pos();
     handle_canvas_clicks(app, rect, &response);
-    handle_keyboard_shortcuts(app, ui);
+    handle_keyboard_shortcuts(app, ui, ctx);
 
     draw_edges_interactive(app, ui, &painter, rect, pointer_pos);
 
@@ -120,11 +120,21 @@ fn handle_canvas_clicks(app: &mut TemplateApp, rect: egui::Rect, response: &egui
     }
 }
 
-fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui) {
+fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui, ctx: &egui::Context) {
+    // Skip global shortcuts if any widget (e.g., text field) has focus
+    let any_widget_focused = ctx.memory(|m| m.focused().is_some());
+    if any_widget_focused {
+        return;
+    }
+
     let delete =
         ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
     if delete {
-        if let Some(node_id) = app.design.selected_node.take() {
+        // First check for selected edge (more specific)
+        if let Some(edge_id) = app.design.selected_edge.take() {
+            app.design.graph.remove_edge(edge_id);
+            app.push_log(format!("Deleted edge {}", edge_id.0));
+        } else if let Some(node_id) = app.design.selected_node.take() {
             app.design.graph.remove_node(node_id);
             app.design.connecting_from = None;
             app.push_log(format!("Deleted node {}", node_id.0));
