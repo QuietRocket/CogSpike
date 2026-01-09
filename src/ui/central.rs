@@ -585,28 +585,12 @@ fn timeline_tab(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
             ui.horizontal(|ui| {
                 ui.checkbox(&mut app.simulate.config.model.enable_arp, "Enable ARP");
-                ui.label(format!(
-                    "({} steps)",
-                    app.design
-                        .graph
-                        .nodes
-                        .first()
-                        .map(|n| n.params.arp)
-                        .unwrap_or(2)
-                ));
+                ui.label(format!("({} steps)", app.design.graph.model_config.arp));
             });
 
             ui.horizontal(|ui| {
                 ui.checkbox(&mut app.simulate.config.model.enable_rrp, "Enable RRP");
-                ui.label(format!(
-                    "({} steps)",
-                    app.design
-                        .graph
-                        .nodes
-                        .first()
-                        .map(|n| n.params.rrp)
-                        .unwrap_or(4)
-                ));
+                ui.label(format!("({} steps)", app.design.graph.model_config.rrp));
             });
         });
 

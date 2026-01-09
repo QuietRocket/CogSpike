@@ -27,22 +27,12 @@ impl NodeKind {
     }
 }
 
+/// Per-neuron parameters that vary between neurons.
+///
+/// Global parameters like threshold, leak rate, and refractory periods
+/// have been moved to `ModelConfig` to ensure isomorphism with PRISM.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NeuronParams {
-    /// Resting threshold potential (0-100, representing 0.0-1.0)
-    pub p_rth: u8,
-    /// Resting potential (0-100)
-    pub p_rest: u8,
-    /// Reset potential after spike (0-100)
-    pub p_reset: u8,
-    /// Leak rate (0-100, representing 0.0-1.0)
-    pub leak_r: u8,
-    /// Absolute refractory period (time steps)
-    pub arp: u32,
-    /// Relative refractory period (time steps)
-    pub rrp: u32,
-    /// Alpha scaling factor for RRP (0-100, representing 0.0-1.0)
-    pub alpha: u8,
     /// Time step in tenths of ms (e.g., 10 = 1.0ms, 1 = 0.1ms)
     pub dt: u8,
     /// Firing probability thresholds (0-100 each, representing 0.0-1.0)
@@ -52,13 +42,6 @@ pub struct NeuronParams {
 impl Default for NeuronParams {
     fn default() -> Self {
         Self {
-            p_rth: 100,
-            p_rest: 0,
-            p_reset: 0,
-            leak_r: 95,
-            arp: 2,
-            rrp: 4,
-            alpha: 50,
             dt: 1, // 0.1ms in tenths
             thresholds: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
         }

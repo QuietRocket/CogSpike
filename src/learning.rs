@@ -455,6 +455,9 @@ fn propagate_snhf(
 pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
     let mut probs = HashMap::new();
 
+    // Use global leak_r from model_config
+    let leak_factor = graph.model_config.leak_r as f64 / 100.0;
+
     for node in &graph.nodes {
         // Input neurons (no incoming edges) always fire
         let prob = if graph.is_input(node.id) {
@@ -464,7 +467,6 @@ pub fn estimate_firing_probabilities(graph: &SnnGraph) -> FiringProbabilities {
             // Higher leak_r means potential builds up more (higher firing prob)
             // This is a rough heuristic
             let base = 0.5;
-            let leak_factor = node.params.leak_r as f64;
             (base * leak_factor).clamp(0.0, 1.0)
         };
         probs.insert(node.id, prob);

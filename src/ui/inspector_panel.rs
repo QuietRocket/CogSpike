@@ -96,64 +96,11 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             });
             ui.label(format!("Kind: {}", node.kind.label()));
 
-            ui.collapsing("Neuron parameters", |ui| {
+            // Show per-neuron settings (only dt and thresholds now)
+            ui.collapsing("Per-Neuron Settings", |ui| {
                 egui::Grid::new("neuron_params_grid")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("P_rth");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.p_rth)
-                                .speed(1)
-                                .range(0..=100)
-                                .suffix("%"),
-                        );
-                        ui.end_row();
-                        ui.label("P_rest");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.p_rest)
-                                .speed(1)
-                                .range(0..=100)
-                                .suffix("%"),
-                        );
-                        ui.end_row();
-                        ui.label("P_reset");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.p_reset)
-                                .speed(1)
-                                .range(0..=100)
-                                .suffix("%"),
-                        );
-                        ui.end_row();
-                        ui.label("Leak r");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.leak_r)
-                                .speed(1)
-                                .range(0..=100)
-                                .suffix("%"),
-                        );
-                        ui.end_row();
-                        ui.label("ARP");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.arp)
-                                .speed(1.0)
-                                .range(0..=256),
-                        );
-                        ui.end_row();
-                        ui.label("RRP");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.rrp)
-                                .speed(1.0)
-                                .range(0..=256),
-                        );
-                        ui.end_row();
-                        ui.label("alpha");
-                        ui.add(
-                            egui::DragValue::new(&mut node.params.alpha)
-                                .speed(1)
-                                .range(0..=100)
-                                .suffix("%"),
-                        );
-                        ui.end_row();
                         ui.label("dt (tenths)");
                         ui.add(
                             egui::DragValue::new(&mut node.params.dt)

@@ -4,7 +4,7 @@
 //! probabilistic model checking with PRISM.
 
 use crate::simulation::{GeneratorCombineMode, InputNeuronConfig, InputPattern, ModelConfig};
-use crate::snn::graph::{NeuronParams, Node, SnnGraph};
+use crate::snn::graph::{Node, SnnGraph};
 use std::fmt::Write as _;
 
 /// Configuration for PRISM model generation.
@@ -46,19 +46,12 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     .ok();
     writeln!(out, "dtmc\n").ok();
 
-    // Global constants from first neuron (or defaults)
-    let default_params = NeuronParams::default();
-    let params = graph
-        .nodes
-        .first()
-        .map(|n| &n.params)
-        .unwrap_or(&default_params);
-
-    write_global_constants(&mut out, params, config);
+    // Global constants from ModelConfig
+    write_global_constants(&mut out, config);
     writeln!(out).ok();
 
     // Threshold formulas
-    write_threshold_formulas(&mut out, params, config);
+    write_threshold_formulas(&mut out, config);
     writeln!(out).ok();
 
     // Weight constants for each edge
@@ -101,18 +94,24 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     out
 }
 
-fn write_global_constants(out: &mut String, params: &NeuronParams, config: &PrismGenConfig) {
+fn write_global_constants(out: &mut String, config: &PrismGenConfig) {
+    let m = &config.model;
     writeln!(out, "// Global neuron parameters").ok();
     // Values are already in 0-100 range
-    writeln!(out, "const int P_rth = {};", params.p_rth).ok();
-    writeln!(out, "const int P_rest = {};", params.p_rest).ok();
-    writeln!(out, "const int P_reset = {};", params.p_reset).ok();
+    writeln!(out, "const int P_rth = {};", m.p_rth).ok();
+    writeln!(out, "const int P_rest = {};", m.p_rest).ok();
+    writeln!(out, "const int P_reset = {};", m.p_reset).ok();
     // leak_r is 0-100, representing 0.0-1.0, so divide by 100 for PRISM double
-    writeln!(out, "const double r = {};", params.leak_r as f64 / 100.0).ok();
-    writeln!(out, "const int ARP = {};", params.arp).ok();
-    writeln!(out, "const int RRP = {};", params.rrp).ok();
-    // alpha is 0-100, representing 0.0-1.0
-    writeln!(out, "const double alpha = {};", params.alpha as f64 / 100.0).ok();
+    writeln!(out, "const double r = {};", m.leak_r as f64 / 100.0).ok();
+    // Only include ARP/RRP constants if enabled
+    if m.enable_arp {
+        writeln!(out, "const int ARP = {};", m.arp).ok();
+    }
+    if m.enable_rrp {
+        writeln!(out, "const int RRP = {};", m.rrp).ok();
+        // alpha is only needed for RRP
+        writeln!(out, "const double alpha = {};", m.alpha as f64 / 100.0).ok();
+    }
     writeln!(out, "const int P_MIN = {};", config.potential_range.0).ok();
     writeln!(out, "const int P_MAX = {};", config.potential_range.1).ok();
     if let Some(t) = config.time_bound {
@@ -120,12 +119,13 @@ fn write_global_constants(out: &mut String, params: &NeuronParams, config: &Pris
     }
 }
 
-fn write_threshold_formulas(out: &mut String, params: &NeuronParams, config: &PrismGenConfig) {
-    let levels = config.model.threshold_levels.clamp(1, 10);
+fn write_threshold_formulas(out: &mut String, config: &PrismGenConfig) {
+    let m = &config.model;
+    let levels = m.threshold_levels.clamp(1, 10);
     writeln!(out, "// Firing probability thresholds ({levels} levels)").ok();
     for i in 1..=levels {
         // Generate thresholds matching simulation.rs generate_thresholds()
-        let th = (i as u32 * params.p_rth as u32) / levels as u32;
+        let th = (i as u32 * m.p_rth as u32) / levels as u32;
         writeln!(out, "formula threshold{i} = {th} * P_rth / 100;").ok();
     }
 }
@@ -653,7 +653,6 @@ fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &Categoriz
 #[expect(clippy::needless_range_loop)]
 fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config: &PrismGenConfig) {
     let n = node.id.0;
-    let params = &node.params;
     let model = &config.model;
     let levels = model.threshold_levels.clamp(1, 10);
 
@@ -693,7 +692,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     writeln!(
         out,
         "  p{} : [P_MIN..P_MAX] init {};  // membrane potential",
-        n, params.p_rest
+        n, model.p_rest
     )
     .ok();
     writeln!(out).ok();
@@ -784,7 +783,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
 
     // Relative refractory period (only if both ARP and RRP enabled)
     if model.enable_arp && model.enable_rrp {
-        let alpha = params.alpha as f64 / 100.0;
+        let alpha = model.alpha as f64 / 100.0;
 
         writeln!(
             out,
@@ -1021,8 +1020,7 @@ mod tests {
         let config = PrismGenConfig {
             model: ModelConfig {
                 threshold_levels: 5,
-                enable_arp: true,
-                enable_rrp: true,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1044,6 +1042,7 @@ mod tests {
                 threshold_levels: 10,
                 enable_arp: false,
                 enable_rrp: false,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1068,6 +1067,7 @@ mod tests {
                 threshold_levels: 10,
                 enable_arp: true,
                 enable_rrp: false,
+                ..Default::default()
             },
             ..Default::default()
         };

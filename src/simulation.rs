@@ -5,7 +5,7 @@
 //! Integrate-and-Fire (LIF) neuron with configurable refractory periods and
 //! probabilistic firing thresholds.
 
-use crate::snn::graph::{EdgeId, NeuronParams, NodeId, SnnGraph};
+use crate::snn::graph::{EdgeId, NodeId, SnnGraph};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -33,6 +33,31 @@ pub struct ModelConfig {
     /// Enable Relative Refractory Period.
     /// When disabled, neurons skip the RRP state after ARP.
     pub enable_rrp: bool,
+
+    // === Global Neuron Parameters (moved from per-neuron storage) ===
+    /// Resting threshold potential (0-100, representing 0.0-1.0).
+    /// Determines the potential level at which firing probability increases.
+    pub p_rth: u8,
+
+    /// Resting potential (0-100).
+    pub p_rest: u8,
+
+    /// Reset potential after spike (0-100).
+    pub p_reset: u8,
+
+    /// Leak rate (0-100, representing 0.0-1.0).
+    /// Controls membrane potential decay each time step.
+    pub leak_r: u8,
+
+    /// Absolute refractory period duration (time steps).
+    pub arp: u32,
+
+    /// Relative refractory period duration (time steps).
+    pub rrp: u32,
+
+    /// Alpha scaling factor for RRP (0-100, representing 0.0-1.0).
+    /// Scales firing probability during relative refractory period.
+    pub alpha: u8,
 }
 
 impl Default for ModelConfig {
@@ -41,6 +66,14 @@ impl Default for ModelConfig {
             threshold_levels: 10,
             enable_arp: true,
             enable_rrp: true,
+            // Global neuron parameters (previous NeuronParams defaults)
+            p_rth: 100,
+            p_rest: 0,
+            p_reset: 0,
+            leak_r: 95,
+            arp: 2,
+            rrp: 4,
+            alpha: 50,
         }
     }
 }
@@ -52,6 +85,7 @@ impl ModelConfig {
             threshold_levels: 1,
             enable_arp: false,
             enable_rrp: false,
+            ..Default::default()
         }
     }
 
@@ -525,7 +559,7 @@ fn run_simulation_with_progress(
     let mut neurons: HashMap<NodeId, NeuronSimState> = graph
         .nodes
         .iter()
-        .map(|n| (n.id, NeuronSimState::new(n.params.p_rest as i32)))
+        .map(|n| (n.id, NeuronSimState::new(config.model.p_rest as i32)))
         .collect();
 
     let mut transfers: HashMap<EdgeId, TransferState> = graph
@@ -660,7 +694,7 @@ pub fn run_simulation(graph: &SnnGraph, config: &SimulationConfig) -> Simulation
     let mut neurons: HashMap<NodeId, NeuronSimState> = graph
         .nodes
         .iter()
-        .map(|n| (n.id, NeuronSimState::new(n.params.p_rest as i32)))
+        .map(|n| (n.id, NeuronSimState::new(config.model.p_rest as i32)))
         .collect();
 
     // Initialize transfer states for neuron-to-neuron edges
@@ -828,16 +862,14 @@ fn compute_neuron_update(
     config: &SimulationConfig,
     rng: &mut impl Rng,
 ) -> NeuronUpdate {
-    let params = &node.params;
     let model = &config.model;
 
-    // Convert parameters
-    let leak_r = params.leak_r as f64 / 100.0;
-    let alpha = params.alpha as f64 / 100.0;
-    let _p_rth = params.p_rth as i32;
+    // Convert parameters from global ModelConfig
+    let leak_r = model.leak_r as f64 / 100.0;
+    let alpha = model.alpha as f64 / 100.0;
 
     // Generate thresholds based on configured levels
-    let thresholds = generate_thresholds(params, model.threshold_levels);
+    let thresholds = generate_thresholds(model);
 
     // Calculate weighted input sum
     let input_sum = calculate_weighted_inputs(node.id, graph, neurons, transfers);
@@ -847,17 +879,9 @@ fn compute_neuron_update(
     let new_potential = new_potential.clamp(P_MIN, P_MAX);
 
     match neuron.state {
-        0 => handle_normal_state(neuron, new_potential, &thresholds, params, model, rng),
-        1 => handle_arp_state(neuron, new_potential, params, model),
-        2 => handle_rrp_state(
-            neuron,
-            new_potential,
-            &thresholds,
-            alpha,
-            params,
-            model,
-            rng,
-        ),
+        0 => handle_normal_state(neuron, new_potential, &thresholds, model, rng),
+        1 => handle_arp_state(neuron, new_potential, model),
+        2 => handle_rrp_state(neuron, new_potential, &thresholds, alpha, model, rng),
         _ => NeuronUpdate {
             new_state: 0,
             new_potential,
@@ -869,9 +893,9 @@ fn compute_neuron_update(
 }
 
 /// Generate threshold values based on configured levels.
-fn generate_thresholds(params: &NeuronParams, levels: u8) -> Vec<i32> {
-    let p_rth = params.p_rth as i32;
-    let levels = levels.clamp(1, 10);
+fn generate_thresholds(model: &ModelConfig) -> Vec<i32> {
+    let p_rth = model.p_rth as i32;
+    let levels = model.threshold_levels.clamp(1, 10);
     (1..=levels)
         .map(|i| (i as i32 * p_rth) / levels as i32)
         .collect()
@@ -920,7 +944,6 @@ fn handle_normal_state(
     _neuron: &NeuronSimState,
     new_potential: i32,
     thresholds: &[i32],
-    params: &NeuronParams,
     model: &ModelConfig,
     rng: &mut impl Rng,
 ) -> NeuronUpdate {
@@ -931,9 +954,9 @@ fn handle_normal_state(
         let next_state = if model.enable_arp { 1 } else { 0 };
         NeuronUpdate {
             new_state: next_state,
-            new_potential: params.p_reset as i32,
+            new_potential: model.p_reset as i32,
             new_spike: 1,
-            new_arp: if model.enable_arp { params.arp } else { 0 },
+            new_arp: if model.enable_arp { model.arp } else { 0 },
             new_rrp: 0,
         }
     } else {
@@ -951,7 +974,6 @@ fn handle_normal_state(
 fn handle_arp_state(
     neuron: &NeuronSimState,
     new_potential: i32,
-    params: &NeuronParams,
     model: &ModelConfig,
 ) -> NeuronUpdate {
     if neuron.arp_counter > 1 {
@@ -965,7 +987,7 @@ fn handle_arp_state(
     } else {
         // ARP finished
         let next_state = if model.enable_rrp { 2 } else { 0 };
-        let next_rrp = if model.enable_rrp { params.rrp } else { 0 };
+        let next_rrp = if model.enable_rrp { model.rrp } else { 0 };
         NeuronUpdate {
             new_state: next_state,
             new_potential,
@@ -982,7 +1004,6 @@ fn handle_rrp_state(
     new_potential: i32,
     thresholds: &[i32],
     alpha: f64,
-    params: &NeuronParams,
     model: &ModelConfig,
     rng: &mut impl Rng,
 ) -> NeuronUpdate {
@@ -990,7 +1011,7 @@ fn handle_rrp_state(
         // RRP finished
         return NeuronUpdate {
             new_state: 0,
-            new_potential: params.p_reset as i32,
+            new_potential: model.p_reset as i32,
             new_spike: 0,
             new_arp: 0,
             new_rrp: 0,
@@ -1005,9 +1026,9 @@ fn handle_rrp_state(
     if fires {
         NeuronUpdate {
             new_state: 1,
-            new_potential: params.p_reset as i32,
+            new_potential: model.p_reset as i32,
             new_spike: 1,
-            new_arp: if model.enable_arp { params.arp } else { 0 },
+            new_arp: if model.enable_arp { model.arp } else { 0 },
             new_rrp: 0,
         }
     } else {
@@ -1101,22 +1122,29 @@ mod tests {
 
     #[test]
     fn test_variable_thresholds() {
-        let params = NeuronParams::default();
-
         // 10 levels (original)
-        let th10 = generate_thresholds(&params, 10);
+        let model10 = ModelConfig::default(); // threshold_levels: 10, p_rth: 100
+        let th10 = generate_thresholds(&model10);
         assert_eq!(th10.len(), 10);
         assert_eq!(th10[0], 10); // 10% of p_rth
         assert_eq!(th10[9], 100); // 100% of p_rth
 
         // 5 levels
-        let th5 = generate_thresholds(&params, 5);
+        let model5 = ModelConfig {
+            threshold_levels: 5,
+            ..Default::default()
+        };
+        let th5 = generate_thresholds(&model5);
         assert_eq!(th5.len(), 5);
         assert_eq!(th5[0], 20); // 20% of p_rth
         assert_eq!(th5[4], 100);
 
         // 1 level (deterministic)
-        let th1 = generate_thresholds(&params, 1);
+        let model1 = ModelConfig {
+            threshold_levels: 1,
+            ..Default::default()
+        };
+        let th1 = generate_thresholds(&model1);
         assert_eq!(th1.len(), 1);
         assert_eq!(th1[0], 100);
     }
