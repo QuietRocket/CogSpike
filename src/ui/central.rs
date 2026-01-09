@@ -533,6 +533,8 @@ fn start_simulation(app: &mut TemplateApp) {
     config.duration_ms = app.simulate.duration_ms;
     config.record_spikes = app.simulate.record_spikes;
     config.record_potentials = app.simulate.record_membrane;
+    // Use model config from the graph for simulation/verification isomorphism
+    config.model = app.design.graph.model_config.clone();
 
     // Start the job
     let job = crate::simulation::start_simulation_job(app.design.graph.clone(), config);
@@ -1011,7 +1013,10 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         .scroll([true, true])
         .show(ctx, |ui| {
             let model_text = if app.verify.use_generated_model {
-                let config = PrismGenConfig::default();
+                let config = PrismGenConfig {
+                    model: app.design.graph.model_config.clone(),
+                    ..PrismGenConfig::default()
+                };
                 generate_prism_model(&app.design.graph, &config)
             } else {
                 DEMO_PRISM_MODEL.to_owned()
@@ -1140,7 +1145,10 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             columns[1].add_space(4.0);
             columns[1].label("PRISM model preview");
             let model_text = if app.verify.use_generated_model {
-                let config = PrismGenConfig::default();
+                let config = PrismGenConfig {
+                    model: app.design.graph.model_config.clone(),
+                    ..PrismGenConfig::default()
+                };
                 generate_prism_model(&app.design.graph, &config)
             } else {
                 DEMO_PRISM_MODEL.to_owned()

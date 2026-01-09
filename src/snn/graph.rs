@@ -1,7 +1,7 @@
 use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 
-use crate::simulation::InputNeuronConfig;
+use crate::simulation::{InputNeuronConfig, ModelConfig};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u32);
@@ -114,6 +114,9 @@ pub struct SnnGraph {
     next_node_id: u32,
     #[serde(default = "SnnGraph::default_edge_id")]
     next_edge_id: u32,
+    /// Model complexity configuration for simulation/verification isomorphism.
+    #[serde(default)]
+    pub model_config: ModelConfig,
 }
 
 impl Default for SnnGraph {
@@ -123,6 +126,7 @@ impl Default for SnnGraph {
             edges: Vec::new(),
             next_node_id: Self::default_node_id(),
             next_edge_id: Self::default_edge_id(),
+            model_config: ModelConfig::default(),
         }
     }
 }

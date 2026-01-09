@@ -32,13 +32,61 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         ui.label("No canvas interaction yet");
     }
 
+    // Model complexity settings (affects both simulation and verification)
+    ui.collapsing("Model Settings", |ui| {
+        let old_levels = app.design.graph.model_config.threshold_levels;
+
+        ui.horizontal(|ui| {
+            ui.label("Threshold levels");
+            ui.add(egui::Slider::new(
+                &mut app.design.graph.model_config.threshold_levels,
+                1..=10,
+            ));
+        });
+
+        // When threshold levels change, rescale all neuron thresholds to be evenly distributed
+        let new_levels = app.design.graph.model_config.threshold_levels;
+        if new_levels != old_levels {
+            for node in &mut app.design.graph.nodes {
+                for i in 0..10 {
+                    // Evenly distribute thresholds: th[i] = (i+1) * 100 / levels
+                    // For i < levels, otherwise keep at 100
+                    if i < new_levels as usize {
+                        node.params.thresholds[i] = (((i + 1) * 100) / new_levels as usize) as u8;
+                    } else {
+                        node.params.thresholds[i] = 100;
+                    }
+                }
+            }
+        }
+
+        ui.checkbox(
+            &mut app.design.graph.model_config.enable_arp,
+            "Enable ARP (Absolute Refractory)",
+        );
+
+        // RRP requires ARP to be enabled
+        ui.add_enabled_ui(app.design.graph.model_config.enable_arp, |ui| {
+            ui.checkbox(
+                &mut app.design.graph.model_config.enable_rrp,
+                "Enable RRP (Relative Refractory)",
+            );
+        });
+
+        // Force RRP off if ARP is disabled
+        if !app.design.graph.model_config.enable_arp {
+            app.design.graph.model_config.enable_rrp = false;
+        }
+    });
+
     if let Some(node_id) = app.design.selected_node {
         ui.separator();
         ui.heading("Selected node");
 
-        // Check topology before mutable borrow
+        // Check topology and model config before mutable borrow
         let is_output_node = app.design.graph.is_output(node_id);
         let is_input_node = app.design.graph.is_input(node_id);
+        let active_threshold_levels = app.design.graph.model_config.threshold_levels as usize;
 
         if let Some(node) = app.design.graph.node_mut(node_id) {
             ui.label(format!("ID {}", node_id.0));
@@ -117,11 +165,21 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             });
 
             ui.collapsing("Thresholds (% of P_rth)", |ui| {
+                ui.label(format!(
+                    "Showing {} of 10 levels (set in Model Settings)",
+                    active_threshold_levels
+                ));
                 egui::Grid::new("thresholds_grid")
                     .num_columns(4)
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
-                        for (idx, threshold) in node.params.thresholds.iter_mut().enumerate() {
+                        for (idx, threshold) in node
+                            .params
+                            .thresholds
+                            .iter_mut()
+                            .take(active_threshold_levels)
+                            .enumerate()
+                        {
                             ui.label(format!("th{}", idx + 1));
                             ui.add(
                                 egui::DragValue::new(threshold)

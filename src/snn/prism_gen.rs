@@ -667,14 +667,20 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     };
 
     writeln!(out, "module Neuron{n}").ok();
-    writeln!(
-        out,
-        "  // State: 0=normal{}{}",
-        if model.enable_arp { ", 1=ARP" } else { "" },
-        if model.enable_rrp { ", 2=RRP" } else { "" }
-    )
-    .ok();
-    writeln!(out, "  s{n} : [0..{max_state}] init 0;").ok();
+
+    // Only declare state variable if refractory periods are enabled
+    if model.enable_arp || model.enable_rrp {
+        writeln!(
+            out,
+            "  // State: 0=normal{}{}",
+            if model.enable_arp { ", 1=ARP" } else { "" },
+            if model.enable_rrp { ", 2=RRP" } else { "" }
+        )
+        .ok();
+        writeln!(out, "  s{n} : [0..{max_state}] init 0;").ok();
+    } else {
+        writeln!(out, "  // No refractory periods - simplified model").ok();
+    }
 
     if model.enable_arp {
         writeln!(out, "  aref{n} : [0..ARP] init 0;").ok();
@@ -704,12 +710,8 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
         ).ok();
     } else {
-        // No ARP: spike and stay in normal state
-        writeln!(
-            out,
-            "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);"
-        )
-        .ok();
+        // No ARP: spike and stay in normal state (no state variable to guard)
+        writeln!(out, "  [tick] y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);").ok();
     }
 
     // Normal period - probabilistic transitions based on thresholds
@@ -719,10 +721,17 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     )
     .ok();
 
+    // State guard prefix - only needed if refractory periods are enabled
+    let state_guard = if model.enable_arp || model.enable_rrp {
+        format!("s{n} = 0 & ")
+    } else {
+        String::new()
+    };
+
     // Below threshold1: no spike
     writeln!(
         out,
-        "  [tick] s{n} = 0 & y{n} = 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
+        "  [tick] {state_guard}y{n} = 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
     ).ok();
 
     // Threshold-based probabilistic firing (variable levels)
@@ -732,7 +741,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         let spike_prob = prob;
         writeln!(
             out,
-            "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1);",
+            "  [tick] {state_guard}y{n} = 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1);",
             i + 1, i + 2, no_spike_prob, spike_prob
         ).ok();
     }
@@ -740,7 +749,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     // Above top threshold: always spike
     writeln!(
         out,
-        "  [tick] s{n} = 0 & y{n} = 0 & p{n} > threshold{levels} -> 1.0:(y{n}' = 1);"
+        "  [tick] {state_guard}y{n} = 0 & p{n} > threshold{levels} -> 1.0:(y{n}' = 1);"
     )
     .ok();
 
@@ -1040,8 +1049,10 @@ mod tests {
         };
         let prism = generate_prism_model(&graph, &config);
 
-        // State should only go to 0 (normal)
-        assert!(prism.contains("s2 : [0..0] init 0;"));
+        // Should NOT have state variable when refractory is disabled
+        assert!(!prism.contains("s2 : [0.."));
+        // Should have simplified model comment
+        assert!(prism.contains("// No refractory periods - simplified model"));
         // Should NOT have aref variable declaration
         assert!(!prism.contains("aref2 : [0..ARP]"));
         // Should NOT have refractory label (since ARP is disabled)

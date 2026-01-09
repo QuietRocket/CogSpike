@@ -440,8 +440,11 @@ impl TemplateApp {
 
     fn prism_request_from_state(&self) -> PrismRequest {
         let model = if self.verify.use_generated_model {
-            // Generate from the design graph
-            let config = PrismGenConfig::default();
+            // Generate from the design graph using the graph's model config
+            let config = PrismGenConfig {
+                model: self.design.graph.model_config.clone(),
+                ..PrismGenConfig::default()
+            };
             generate_prism_model(&self.design.graph, &config)
         } else {
             // Use demo model
@@ -580,7 +583,10 @@ impl TemplateApp {
 
                 // Generate PRISM model from current graph
                 let model = if use_generated_model {
-                    let prism_config = PrismGenConfig::default();
+                    let prism_config = PrismGenConfig {
+                        model: graph.model_config.clone(),
+                        ..PrismGenConfig::default()
+                    };
                     generate_prism_model(&graph, &prism_config)
                 } else {
                     DEMO_PRISM_MODEL.to_owned()
