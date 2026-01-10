@@ -154,6 +154,45 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
             });
+
+        // PRISM state space optimization
+        ui.add_space(8.0);
+        ui.label("PRISM State Space");
+
+        let mut has_threshold = app
+            .design
+            .graph
+            .model_config
+            .prism_potential_threshold
+            .is_some();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut has_threshold, "Limit potential range:");
+            if has_threshold {
+                let th = app
+                    .design
+                    .graph
+                    .model_config
+                    .prism_potential_threshold
+                    .get_or_insert(200);
+                ui.add(egui::DragValue::new(th).speed(10).range(50..=1000));
+            } else {
+                app.design.graph.model_config.prism_potential_threshold = None;
+                ui.label("(use default)");
+            }
+        });
+
+        if app
+            .design
+            .graph
+            .model_config
+            .prism_potential_threshold
+            .is_some()
+        {
+            let range = app.design.graph.model_config.derive_potential_range();
+            if let Some((min, max)) = range {
+                ui.small(format!("P_MIN={min}, P_MAX={max}"));
+            }
+        }
     });
 
     if let Some(node_id) = app.design.selected_node {

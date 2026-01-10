@@ -58,6 +58,13 @@ pub struct ModelConfig {
     /// Alpha scaling factor for RRP (0-100, representing 0.0-1.0).
     /// Scales firing probability during relative refractory period.
     pub alpha: u8,
+
+    // === PRISM State Space Optimization ===
+    /// Optional threshold for deriving PRISM potential range.
+    /// When set, P_MIN = -2*threshold, P_MAX = 2*threshold.
+    /// When None, uses the default range from PrismGenConfig.
+    #[serde(default)]
+    pub prism_potential_threshold: Option<u16>,
 }
 
 impl Default for ModelConfig {
@@ -74,6 +81,7 @@ impl Default for ModelConfig {
             arp: 2,
             rrp: 4,
             alpha: 50,
+            prism_potential_threshold: None,
         }
     }
 }
@@ -92,6 +100,15 @@ impl ModelConfig {
     /// Validate and clamp threshold_levels to valid range.
     pub fn validate(&mut self) {
         self.threshold_levels = self.threshold_levels.clamp(1, 10);
+    }
+
+    /// Derive PRISM potential range from threshold, or None to use default.
+    /// Range is centered at 0: (-2*threshold, 2*threshold)
+    pub fn derive_potential_range(&self) -> Option<(i32, i32)> {
+        self.prism_potential_threshold.map(|th| {
+            let bound = i32::from(th) * 2;
+            (-bound, bound)
+        })
     }
 }
 

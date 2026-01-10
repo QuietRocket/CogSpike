@@ -112,8 +112,12 @@ fn write_global_constants(out: &mut String, config: &PrismGenConfig) {
         // alpha is only needed for RRP
         writeln!(out, "const double alpha = {};", m.alpha as f64 / 100.0).ok();
     }
-    writeln!(out, "const int P_MIN = {};", config.potential_range.0).ok();
-    writeln!(out, "const int P_MAX = {};", config.potential_range.1).ok();
+
+    // Use derived potential range from ModelConfig threshold if set, otherwise use config default
+    let (p_min, p_max) = m.derive_potential_range().unwrap_or(config.potential_range);
+    writeln!(out, "const int P_MIN = {p_min};").ok();
+    writeln!(out, "const int P_MAX = {p_max};").ok();
+
     if let Some(t) = config.time_bound {
         writeln!(out, "const int T_MAX = {t};").ok();
     }
