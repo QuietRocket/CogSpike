@@ -149,17 +149,22 @@ impl PrismEngineOptions {
             }
         }
 
-        // Memory settings
-        args.push(format!("-javamaxmem {}", self.java_max_mem));
-        args.push(format!("-javastack {}", self.java_stack));
-        args.push(format!("-cuddmaxmem {}", self.cudd_max_mem));
+        // Memory settings - each flag and value must be separate arguments
+        args.push("-javamaxmem".to_owned());
+        args.push(self.java_max_mem.clone());
+        args.push("-javastack".to_owned());
+        args.push(self.java_stack.clone());
+        args.push("-cuddmaxmem".to_owned());
+        args.push(self.cudd_max_mem.clone());
 
-        // Convergence settings
+        // Convergence settings - also split into separate args
         if let Some(eps) = self.epsilon {
-            args.push(format!("-epsilon {eps}"));
+            args.push("-epsilon".to_owned());
+            args.push(eps.to_string());
         }
         if let Some(iters) = self.max_iters {
-            args.push(format!("-maxiters {iters}"));
+            args.push("-maxiters".to_owned());
+            args.push(iters.to_string());
         }
 
         args
