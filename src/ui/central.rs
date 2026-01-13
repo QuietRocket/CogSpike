@@ -971,6 +971,12 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                 app.push_log(format!("Unable to start model check: {err}"));
             }
         }
+        // Cancel button - only enabled when a job is running
+        if app.verify.job.is_some() {
+            if ui.button("⏹ Cancel").clicked() {
+                app.cancel_model_check();
+            }
+        }
         if ui
             .add_enabled(app.verify.job.is_none(), egui::Button::new("Reset result"))
             .clicked()
@@ -1090,7 +1096,11 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.label("Status:");
         if let Some(job) = app.verify.job.as_ref() {
             ui.spinner();
-            ui.label(format!("Running… {:.1?}", job.started_at.elapsed()));
+            if job.is_stop_requested() {
+                ui.label(format!("Cancelling… {:.1?}", job.started_at.elapsed()));
+            } else {
+                ui.label(format!("Running… {:.1?}", job.started_at.elapsed()));
+            }
         } else if let Some(err) = &app.verify.last_error {
             ui.colored_label(
                 egui::Color32::from_rgb(180, 50, 50),

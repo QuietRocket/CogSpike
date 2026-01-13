@@ -2,8 +2,13 @@ use std::{
     env,
     ffi::OsString,
     fs,
+    io::Read,
     path::{Path, PathBuf},
-    sync::mpsc::{Receiver, TryRecvError},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, TryRecvError},
+    },
     time::{Duration, Instant},
 };
 
@@ -223,14 +228,26 @@ pub trait ModelChecker: Send + Sync {
 pub struct CheckerJob {
     pub started_at: Instant,
     receiver: Receiver<Result<PrismResponse>>,
+    stop_requested: Arc<AtomicBool>,
 }
 
 impl CheckerJob {
-    pub fn new(receiver: Receiver<Result<PrismResponse>>) -> Self {
+    pub fn new(receiver: Receiver<Result<PrismResponse>>, stop_flag: Arc<AtomicBool>) -> Self {
         Self {
             started_at: Instant::now(),
             receiver,
+            stop_requested: stop_flag,
         }
+    }
+
+    /// Request the background check to stop.
+    pub fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::SeqCst);
+    }
+
+    /// Check if stop has been requested.
+    pub fn is_stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst)
     }
 
     pub fn try_recv(&self) -> Option<Result<PrismResponse>> {
@@ -369,6 +386,22 @@ impl ModelChecker for LocalPrism {
     }
 
     fn check(&self, request: PrismRequest) -> Result<PrismResponse> {
+        // Default implementation without cancellation support
+        self.check_cancellable(request, Arc::new(AtomicBool::new(false)))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl LocalPrism {
+    /// Run model checking with cancellation support.
+    ///
+    /// If `stop_flag` is set to `true`, the PRISM process will be killed and
+    /// an error will be returned indicating cancellation.
+    pub fn check_cancellable(
+        &self,
+        request: PrismRequest,
+        stop_flag: Arc<AtomicBool>,
+    ) -> Result<PrismResponse> {
         let tempdir = tempfile::tempdir().context("failed to create workspace for PRISM")?;
         let (model_path, props_path) = self.write_inputs(&request, &tempdir)?;
 
@@ -385,6 +418,11 @@ impl ModelChecker for LocalPrism {
         });
 
         for formula in &request.properties {
+            // Check for cancellation before starting each property
+            if stop_flag.load(Ordering::SeqCst) {
+                return Err(anyhow!("Model check cancelled"));
+            }
+
             let opts = &request.options.engine_options;
             let mut cmd = if use_direct_java {
                 let mut c = Command::new("java");
@@ -437,25 +475,56 @@ impl ModelChecker for LocalPrism {
 
             cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-            let output = cmd
-                .output()
+            // Spawn the process instead of blocking on output()
+            let mut child = cmd
+                .spawn()
                 .with_context(|| format!("failed to run PRISM at {}", self.prism_path.display()))?;
 
-            let raw_output = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
+            // Poll the child process while checking for cancellation
+            let poll_interval = Duration::from_millis(100);
+            loop {
+                // Check for cancellation
+                if stop_flag.load(Ordering::SeqCst) {
+                    // Kill the PRISM process
+                    let _ = child.kill();
+                    let _ = child.wait(); // Reap the zombie process
+                    return Err(anyhow!("Model check cancelled"));
+                }
 
-            if !output.status.success() {
-                return Err(anyhow!(
-                    "PRISM exited with status {}: {}",
-                    output.status,
-                    raw_output.trim()
-                ));
+                // Check if process has finished
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        // Process finished - collect output
+                        let mut stdout = String::new();
+                        let mut stderr = String::new();
+                        if let Some(ref mut out) = child.stdout {
+                            let _ = out.read_to_string(&mut stdout);
+                        }
+                        if let Some(ref mut err) = child.stderr {
+                            let _ = err.read_to_string(&mut stderr);
+                        }
+                        let raw_output = format!("{stdout}{stderr}");
+
+                        if !status.success() {
+                            return Err(anyhow!(
+                                "PRISM exited with status {}: {}",
+                                status,
+                                raw_output.trim()
+                            ));
+                        }
+
+                        results.push(Self::parse_output(formula, raw_output));
+                        break;
+                    }
+                    Ok(None) => {
+                        // Process still running, wait a bit
+                        std::thread::sleep(poll_interval);
+                    }
+                    Err(e) => {
+                        return Err(anyhow!("Error waiting for PRISM process: {e}"));
+                    }
+                }
             }
-
-            results.push(Self::parse_output(formula, raw_output));
         }
 
         Ok(results)

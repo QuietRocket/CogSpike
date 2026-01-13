@@ -481,19 +481,22 @@ impl TemplateApp {
             return Err("Model checker already running".to_owned());
         }
 
-        self.model_checker = Some(Arc::new(LocalPrism::new(&self.backend.prism_path)));
-
-        let Some(checker) = self.model_checker.clone() else {
-            return Err("No model checker backend is configured".to_owned());
-        };
+        // Create the PRISM checker instance
+        let checker = LocalPrism::new(&self.backend.prism_path);
 
         let request = self.prism_request_from_state();
         let (tx, rx) = mpsc::channel();
+
+        // Create stop flag for cancellation
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_clone = stop_flag.clone();
+
         thread::spawn(move || {
-            let result = checker.check(request);
+            let result = checker.check_cancellable(request, stop_flag_clone);
             let _ = tx.send(result);
         });
-        self.verify.job = Some(CheckerJob::new(rx));
+
+        self.verify.job = Some(CheckerJob::new(rx, stop_flag));
         self.verify.last_error = None;
         self.verify.last_result = None;
         self.push_log("Started PRISM model check");
@@ -507,6 +510,7 @@ impl TemplateApp {
 
         if let Some(result) = job.try_recv() {
             let elapsed = job.started_at.elapsed();
+            let was_cancelled = job.is_stop_requested();
             self.verify.job = None;
 
             match result {
@@ -517,10 +521,25 @@ impl TemplateApp {
                 }
                 Err(err) => {
                     self.verify.last_result = None;
-                    self.verify.last_error = Some(err.to_string());
-                    self.push_log(format!("PRISM failed after {elapsed:.1?}: {err}"));
+                    let err_str = err.to_string();
+                    // Check if this was a cancellation
+                    if was_cancelled || err_str.contains("cancelled") {
+                        self.verify.last_error = Some("Cancelled".to_owned());
+                        self.push_log(format!("PRISM cancelled after {elapsed:.1?}"));
+                    } else {
+                        self.verify.last_error = Some(err_str.clone());
+                        self.push_log(format!("PRISM failed after {elapsed:.1?}: {err_str}"));
+                    }
                 }
             }
+        }
+    }
+
+    /// Request cancellation of the running model check.
+    pub(crate) fn cancel_model_check(&mut self) {
+        if let Some(job) = &self.verify.job {
+            job.request_stop();
+            self.push_log("Cancellation requested for PRISM...");
         }
     }
 
