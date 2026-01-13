@@ -114,21 +114,72 @@ fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenC
         writeln!(out, "const double alpha = {};", m.alpha as f64 / 100.0).ok();
     }
 
-    // Use derived potential range from ModelConfig threshold if set, otherwise use config default
+    // Compute global potential range (for fallback in formulas)
     let (mut p_min, p_max) = m.derive_potential_range().unwrap_or(config.potential_range);
-
-    // Optimization: if no inhibitory synapses, potentials can only be non-negative
     if !graph.has_inhibitory_synapses() {
         p_min = 0;
-        writeln!(out, "// Optimized: P_MIN=0 (no inhibitory synapses)").ok();
     }
-
     writeln!(out, "const int P_MIN = {p_min};").ok();
     writeln!(out, "const int P_MAX = {p_max};").ok();
+
+    // Per-neuron optimized potential ranges
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "// Per-neuron potential bounds (optimized for state space)"
+    )
+    .ok();
+    for node in &graph.nodes {
+        if graph.is_input(node.id) {
+            continue;
+        }
+        let (n_min, n_max) = compute_neuron_potential_range(node, graph, config);
+        writeln!(out, "const int P_MIN_{} = {};", node.id.0, n_min).ok();
+        writeln!(out, "const int P_MAX_{} = {};", node.id.0, n_max).ok();
+    }
 
     if let Some(t) = config.time_bound {
         writeln!(out, "const int T_MAX = {t};").ok();
     }
+}
+
+/// Compute the optimal potential range for a specific neuron based on incoming weights.
+/// Returns (p_min, p_max) where:
+/// - p_max = max(P_rth, sum of positive incoming weights) with headroom
+/// - p_min = -(sum of negative incoming weights) or 0 if no inhibitory
+fn compute_neuron_potential_range(
+    node: &Node,
+    graph: &SnnGraph,
+    config: &PrismGenConfig,
+) -> (i32, i32) {
+    let incoming = graph.incoming_edges(node.id);
+
+    // Calculate max excitatory and inhibitory input per step
+    let mut max_excitatory: i32 = 0;
+    let mut max_inhibitory: i32 = 0;
+
+    for edge in &incoming {
+        let w = edge.signed_weight() as i32;
+        if w > 0 {
+            max_excitatory += w;
+        } else {
+            max_inhibitory += w.abs();
+        }
+    }
+
+    // P_MAX: at least P_rth (firing threshold), plus max input with 1.5x headroom
+    // The 1.5x accounts for potential accumulation before firing
+    let p_rth = config.model.p_rth as i32;
+    let p_max = std::cmp::max(p_rth, (max_excitatory * 3) / 2);
+
+    // P_MIN: only negative if there are inhibitory inputs
+    let p_min = if max_inhibitory > 0 {
+        -((max_inhibitory * 3) / 2)
+    } else {
+        0
+    };
+
+    (p_min, p_max)
 }
 
 fn write_threshold_formulas(out: &mut String, config: &PrismGenConfig) {
@@ -185,7 +236,11 @@ fn write_transfer_formulas(out: &mut String, graph: &SnnGraph) {
 }
 
 fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismGenConfig) {
-    writeln!(out, "// Membrane potential update formulas").ok();
+    writeln!(
+        out,
+        "// Membrane potential update formulas (using per-neuron bounds)"
+    )
+    .ok();
 
     for node in &graph.nodes {
         // Skip Input nodes
@@ -193,14 +248,14 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
             continue;
         }
 
+        let n = node.id.0;
         let incoming: Vec<_> = graph.incoming_edges(node.id).into_iter().collect();
 
         if incoming.is_empty() {
             // No inputs, potential just decays
             writeln!(
                 out,
-                "formula newPotential_{} = max(P_MIN, min(P_MAX, floor(r * p{})));",
-                node.id.0, node.id.0
+                "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(r * p{n})));"
             )
             .ok();
             continue;
@@ -233,8 +288,7 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
 
         writeln!(
             out,
-            "formula newPotential_{} = max(P_MIN, min(P_MAX, floor(({}) + r * p{})));",
-            node.id.0, input_sum, node.id.0
+            "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(({input_sum}) + r * p{n})));"
         )
         .ok();
     }
@@ -703,8 +757,8 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     writeln!(out, "  y{n} : [0..1] init 0;  // spike output").ok();
     writeln!(
         out,
-        "  p{} : [P_MIN..P_MAX] init {};  // membrane potential",
-        n, model.p_rest
+        "  p{} : [P_MIN_{}..P_MAX_{}] init {};  // membrane potential (per-neuron bounds)",
+        n, n, n, model.p_rest
     )
     .ok();
     writeln!(out).ok();
@@ -1266,5 +1320,44 @@ mod tests {
             prism.contains("0.65") || prism.contains("0.650000"),
             "Combined OR probability missing"
         );
+    }
+
+    #[test]
+    fn test_per_neuron_potential_bounds() {
+        use crate::snn::graph::NodeKind;
+
+        // Create a diamond topology: Input -> A -> (B, C) -> D
+        // A has 1 input (weight 100), D has 2 inputs (weight 100 each)
+        let mut graph = SnnGraph::default();
+        let input = graph.add_node("Input", NodeKind::Neuron, [0.0, 0.0]);
+        let a = graph.add_node("A", NodeKind::Neuron, [100.0, 0.0]);
+        let b = graph.add_node("B", NodeKind::Neuron, [200.0, -50.0]);
+        let c = graph.add_node("C", NodeKind::Neuron, [200.0, 50.0]);
+        let d = graph.add_node("D", NodeKind::Neuron, [300.0, 0.0]);
+
+        graph.add_edge(input, a, 100);
+        graph.add_edge(a, b, 100);
+        graph.add_edge(a, c, 100);
+        graph.add_edge(b, d, 100);
+        graph.add_edge(c, d, 100);
+
+        let config = PrismGenConfig::default();
+        let prism = generate_prism_model(&graph, &config);
+
+        // Check per-neuron constants are generated
+        assert!(prism.contains("// Per-neuron potential bounds"));
+
+        // A has 1 input: P_MAX should be based on weight 100 -> 150 (100 * 1.5)
+        assert!(prism.contains(&format!("P_MAX_{} = 150", a.0)));
+
+        // D has 2 inputs: P_MAX should be based on weight 200 -> 300 (200 * 1.5)
+        assert!(prism.contains(&format!("P_MAX_{} = 300", d.0)));
+
+        // All neurons should have P_MIN = 0 (no inhibitory)
+        assert!(prism.contains(&format!("P_MIN_{} = 0", a.0)));
+        assert!(prism.contains(&format!("P_MIN_{} = 0", d.0)));
+
+        // Neuron modules should use per-neuron bounds
+        assert!(prism.contains(&format!("p{} : [P_MIN_{}..P_MAX_{}]", d.0, d.0, d.0)));
     }
 }
