@@ -103,6 +103,47 @@ impl PrismHeuristic {
     }
 }
 
+/// PRISM linear equation solver method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PrismSolver {
+    /// Jacobi method (default).
+    #[default]
+    Jacobi,
+    /// Gauss-Seidel (often faster convergence).
+    GaussSeidel,
+    /// Power method.
+    Power,
+    /// Successive over-relaxation.
+    Sor,
+}
+
+impl PrismSolver {
+    pub const ALL: [PrismSolver; 4] = [
+        PrismSolver::Jacobi,
+        PrismSolver::GaussSeidel,
+        PrismSolver::Power,
+        PrismSolver::Sor,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PrismSolver::Jacobi => "Jacobi (default)",
+            PrismSolver::GaussSeidel => "Gauss-Seidel",
+            PrismSolver::Power => "Power",
+            PrismSolver::Sor => "SOR",
+        }
+    }
+
+    pub fn to_arg(self) -> Option<&'static str> {
+        match self {
+            PrismSolver::Jacobi => None, // Default, no arg needed
+            PrismSolver::GaussSeidel => Some("-gs"),
+            PrismSolver::Power => Some("-power"),
+            PrismSolver::Sor => Some("-sor"),
+        }
+    }
+}
+
 /// Structured PRISM engine and solver options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrismEngineOptions {
@@ -110,6 +151,9 @@ pub struct PrismEngineOptions {
     pub engine: PrismEngine,
     /// Automatic heuristic mode.
     pub heuristic: PrismHeuristic,
+    /// Linear equation solver method.
+    #[serde(default)]
+    pub solver: PrismSolver,
     /// Java maximum heap size (e.g., "1g", "4g").
     pub java_max_mem: String,
     /// Java stack size (e.g., "4m").
@@ -120,6 +164,15 @@ pub struct PrismEngineOptions {
     pub epsilon: Option<f64>,
     /// Maximum iterations for iterative methods.
     pub max_iters: Option<u32>,
+    /// Hard timeout in seconds (PRISM will exit after this).
+    #[serde(default)]
+    pub timeout_secs: Option<u32>,
+    /// Skip precomputation algorithms (Prob0/Prob1) for speed.
+    #[serde(default)]
+    pub skip_precomputation: bool,
+    /// Use topological value iteration (can be faster for DAG-like models).
+    #[serde(default)]
+    pub topological: bool,
 }
 
 impl Default for PrismEngineOptions {
@@ -127,11 +180,15 @@ impl Default for PrismEngineOptions {
         Self {
             engine: PrismEngine::default(),
             heuristic: PrismHeuristic::default(),
+            solver: PrismSolver::default(),
             java_max_mem: "1g".to_owned(),
             java_stack: "4m".to_owned(),
             cudd_max_mem: "1g".to_owned(),
             epsilon: None,
             max_iters: None,
+            timeout_secs: None,
+            skip_precomputation: false,
+            topological: false,
         }
     }
 }
@@ -170,6 +227,25 @@ impl PrismEngineOptions {
         if let Some(iters) = self.max_iters {
             args.push("-maxiters".to_owned());
             args.push(iters.to_string());
+        }
+
+        // Solver method
+        if let Some(solver_arg) = self.solver.to_arg() {
+            args.push(solver_arg.to_owned());
+        }
+
+        // Timeout
+        if let Some(timeout) = self.timeout_secs {
+            args.push("-timeout".to_owned());
+            args.push(timeout.to_string());
+        }
+
+        // Speed optimizations
+        if self.skip_precomputation {
+            args.push("-nopre".to_owned());
+        }
+        if self.topological {
+            args.push("-topological".to_owned());
         }
 
         args

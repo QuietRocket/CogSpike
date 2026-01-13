@@ -696,6 +696,44 @@ fn verify_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                 });
         });
 
+        // Solver method
+        ui.horizontal(|ui| {
+            ui.label("Solver:");
+            egui::ComboBox::from_id_salt("prism_solver")
+                .selected_text(opts.solver.label())
+                .show_ui(ui, |ui| {
+                    for solver in crate::model_checker::PrismSolver::ALL {
+                        ui.selectable_value(&mut opts.solver, solver, solver.label());
+                    }
+                });
+        });
+
+        ui.add_space(4.0);
+        ui.label("Speed Optimizations");
+
+        // Timeout
+        let mut has_timeout = opts.timeout_secs.is_some();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut has_timeout, "Timeout:");
+            if has_timeout {
+                let timeout = opts.timeout_secs.get_or_insert(60);
+                ui.add(
+                    egui::DragValue::new(timeout)
+                        .speed(1)
+                        .range(5..=3600)
+                        .suffix(" sec"),
+                );
+            } else {
+                opts.timeout_secs = None;
+                ui.label("(none)");
+            }
+        });
+
+        ui.checkbox(&mut opts.skip_precomputation, "Skip precomputation")
+            .on_hover_text("Skip Prob0/Prob1 precomputation (faster for simple queries)");
+        ui.checkbox(&mut opts.topological, "Topological iteration")
+            .on_hover_text("Use topological value iteration (faster for DAG-like models)");
+
         ui.add_space(4.0);
         ui.label("Memory Settings");
 
