@@ -259,6 +259,12 @@ impl SnnGraph {
             .collect()
     }
 
+    /// Check if the graph has any inhibitory synapses.
+    /// Used for PRISM optimization: if no inhibitory synapses, P_MIN can be 0.
+    pub fn has_inhibitory_synapses(&self) -> bool {
+        self.edges.iter().any(|e| e.is_inhibitory)
+    }
+
     /// Find the edge by ID and return an immutable reference.
     pub fn edge(&self, id: EdgeId) -> Option<&Edge> {
         self.edges.iter().find(|e| e.id == id)

@@ -68,12 +68,17 @@ pub struct ModelConfig {
 }
 
 impl Default for ModelConfig {
+    /// Default configuration optimized for fast PRISM verification.
+    /// For biologically accurate models, use `ModelConfig::full()`.
     fn default() -> Self {
         Self {
-            threshold_levels: 10,
-            enable_arp: true,
-            enable_rrp: true,
-            // Global neuron parameters (previous NeuronParams defaults)
+            // Optimized for execution speed: 4 levels provides probabilistic
+            // behavior while reducing state space by 60% vs 10 levels
+            threshold_levels: 4,
+            // Disabled by default for faster verification; enable via full()
+            enable_arp: false,
+            enable_rrp: false,
+            // Global neuron parameters
             p_rth: 100,
             p_rest: 0,
             p_reset: 0,
@@ -81,18 +86,33 @@ impl Default for ModelConfig {
             arp: 2,
             rrp: 4,
             alpha: 50,
-            prism_potential_threshold: None,
+            // Auto-derive range: P_MIN=-200, P_MAX=200 (401 states vs 1001)
+            prism_potential_threshold: Some(100),
         }
     }
 }
 
 impl ModelConfig {
-    /// Configuration for minimal PRISM state space (deterministic, no refractory).
-    pub fn minimal() -> Self {
+    /// Full biologically accurate configuration with refractory periods.
+    /// Use when model accuracy is more important than verification speed.
+    pub fn full() -> Self {
+        Self {
+            threshold_levels: 10,
+            enable_arp: true,
+            enable_rrp: true,
+            prism_potential_threshold: None,
+            ..Default::default()
+        }
+    }
+
+    /// Configuration for minimal PRISM state space (deterministic firing, no refractory).
+    /// Use for fastest possible verification with binary firing behavior.
+    pub fn deterministic() -> Self {
         Self {
             threshold_levels: 1,
             enable_arp: false,
             enable_rrp: false,
+            prism_potential_threshold: Some(100),
             ..Default::default()
         }
     }
@@ -1139,8 +1159,15 @@ mod tests {
 
     #[test]
     fn test_variable_thresholds() {
-        // 10 levels (original)
-        let model10 = ModelConfig::default(); // threshold_levels: 10, p_rth: 100
+        // Default (4 levels - optimized for speed)
+        let model4 = ModelConfig::default();
+        let th4 = generate_thresholds(&model4);
+        assert_eq!(th4.len(), 4);
+        assert_eq!(th4[0], 25); // 25% of p_rth
+        assert_eq!(th4[3], 100); // 100% of p_rth
+
+        // 10 levels (full model)
+        let model10 = ModelConfig::full();
         let th10 = generate_thresholds(&model10);
         assert_eq!(th10.len(), 10);
         assert_eq!(th10[0], 10); // 10% of p_rth
@@ -1204,10 +1231,10 @@ mod tests {
     }
 
     #[test]
-    fn test_model_config_minimal() {
-        let minimal = ModelConfig::minimal();
-        assert_eq!(minimal.threshold_levels, 1);
-        assert!(!minimal.enable_arp);
-        assert!(!minimal.enable_rrp);
+    fn test_model_config_deterministic() {
+        let deterministic = ModelConfig::deterministic();
+        assert_eq!(deterministic.threshold_levels, 1);
+        assert!(!deterministic.enable_arp);
+        assert!(!deterministic.enable_rrp);
     }
 }

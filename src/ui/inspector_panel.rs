@@ -34,6 +34,33 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
     // Model complexity settings (affects both simulation and verification)
     ui.collapsing("Model Settings", |ui| {
+        // Preset buttons for quick configuration
+        ui.horizontal(|ui| {
+            ui.label("Presets:");
+            if ui
+                .button("Fast")
+                .on_hover_text("Optimized for verification speed")
+                .clicked()
+            {
+                app.design.graph.model_config = crate::simulation::ModelConfig::default();
+            }
+            if ui
+                .button("Full")
+                .on_hover_text("Biologically accurate with refractory periods")
+                .clicked()
+            {
+                app.design.graph.model_config = crate::simulation::ModelConfig::full();
+            }
+            if ui
+                .button("Deterministic")
+                .on_hover_text("Minimal state space, binary firing")
+                .clicked()
+            {
+                app.design.graph.model_config = crate::simulation::ModelConfig::deterministic();
+            }
+        });
+        ui.add_space(4.0);
+
         let old_levels = app.design.graph.model_config.threshold_levels;
 
         ui.horizontal(|ui| {

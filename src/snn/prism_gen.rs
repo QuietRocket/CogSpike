@@ -23,7 +23,8 @@ pub struct PrismGenConfig {
 impl Default for PrismGenConfig {
     fn default() -> Self {
         Self {
-            potential_range: (-500, 500),
+            // Tighter default range; overridden by model.derive_potential_range() if set
+            potential_range: (-200, 200),
             include_rewards: true,
             time_bound: Some(100),
             model: ModelConfig::default(),
@@ -47,7 +48,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     writeln!(out, "dtmc\n").ok();
 
     // Global constants from ModelConfig
-    write_global_constants(&mut out, config);
+    write_global_constants(&mut out, graph, config);
     writeln!(out).ok();
 
     // Threshold formulas
@@ -94,7 +95,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     out
 }
 
-fn write_global_constants(out: &mut String, config: &PrismGenConfig) {
+fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
     let m = &config.model;
     writeln!(out, "// Global neuron parameters").ok();
     // Values are already in 0-100 range
@@ -114,7 +115,14 @@ fn write_global_constants(out: &mut String, config: &PrismGenConfig) {
     }
 
     // Use derived potential range from ModelConfig threshold if set, otherwise use config default
-    let (p_min, p_max) = m.derive_potential_range().unwrap_or(config.potential_range);
+    let (mut p_min, p_max) = m.derive_potential_range().unwrap_or(config.potential_range);
+
+    // Optimization: if no inhibitory synapses, potentials can only be non-negative
+    if !graph.has_inhibitory_synapses() {
+        p_min = 0;
+        writeln!(out, "// Optimized: P_MIN=0 (no inhibitory synapses)").ok();
+    }
+
     writeln!(out, "const int P_MIN = {p_min};").ok();
     writeln!(out, "const int P_MAX = {p_max};").ok();
 
