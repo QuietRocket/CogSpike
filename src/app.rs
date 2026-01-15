@@ -6,6 +6,7 @@ use crate::{
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
         prism_gen::{PrismGenConfig, generate_prism_model},
+        prism_quotient_gen::generate_quotient_model,
     },
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
@@ -78,6 +79,22 @@ impl Default for Mode {
     fn default() -> Self {
         Self::Design
     }
+}
+
+/// Abstraction mode for PRISM model generation.
+///
+/// Controls whether the verification uses the precise model (exact membrane potentials)
+/// or a quotient model (potentials abstracted to firing probability classes).
+#[derive(serde::Deserialize, serde::Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum AbstractionMode {
+    /// Full precision: exact membrane potentials tracked.
+    /// Required for properties that reference specific potential values.
+    #[default]
+    Precise,
+    /// Quotient abstraction: potentials abstracted to firing probability classes.
+    /// Preserves spike-related PCTL properties with ~10^9 state space reduction.
+    /// WARNING: Properties referencing exact potential values will be invalid.
+    Quotient,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
@@ -309,6 +326,10 @@ pub struct VerifyState {
     /// PRISM engine and solver options.
     #[serde(default)]
     pub(crate) prism_options: PrismEngineOptions,
+    /// Abstraction mode for PRISM model generation.
+    /// Quotient mode provides ~10^9 state reduction but only preserves spike-related properties.
+    #[serde(default)]
+    pub(crate) abstraction_mode: AbstractionMode,
 }
 
 impl Default for VerifyState {
@@ -331,6 +352,7 @@ impl Default for VerifyState {
             training_job: None,
             last_training_result: None,
             prism_options: PrismEngineOptions::default(),
+            abstraction_mode: AbstractionMode::default(),
         }
     }
 }
@@ -451,7 +473,11 @@ impl TemplateApp {
                 model: self.design.graph.model_config.clone(),
                 ..PrismGenConfig::default()
             };
-            generate_prism_model(&self.design.graph, &config)
+            // Use quotient or precise generator based on abstraction mode
+            match self.verify.abstraction_mode {
+                AbstractionMode::Precise => generate_prism_model(&self.design.graph, &config),
+                AbstractionMode::Quotient => generate_quotient_model(&self.design.graph, &config),
+            }
         } else {
             // Use demo model
             DEMO_PRISM_MODEL.to_owned()

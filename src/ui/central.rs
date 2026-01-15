@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use crate::{
-    app::{DEMO_PRISM_MODEL, Mode, SimTab, TemplateApp},
+    app::{AbstractionMode, DEMO_PRISM_MODEL, Mode, SimTab, TemplateApp},
     learning::{collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
         graph::{NodeId, NodeKind},
         prism_gen::{PrismGenConfig, generate_pctl_properties, generate_prism_model},
+        prism_quotient_gen::generate_quotient_model,
     },
 };
 
@@ -991,6 +992,23 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         if ui.button("📋 View Properties").clicked() {
             app.verify.show_properties_window = true;
         }
+        ui.separator();
+        // Abstraction mode toggle
+        ui.label("Model:");
+        ui.selectable_value(
+            &mut app.verify.abstraction_mode,
+            AbstractionMode::Precise,
+            "Precise",
+        );
+        ui.selectable_value(
+            &mut app.verify.abstraction_mode,
+            AbstractionMode::Quotient,
+            "Quotient ⚡",
+        )
+        .on_hover_text(
+            "Quotient mode: only spike-related properties are preserved.\n\
+             Properties referencing exact potential values will be invalid.",
+        );
     });
     ui.separator();
 
@@ -1007,7 +1025,12 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     model: app.design.graph.model_config.clone(),
                     ..PrismGenConfig::default()
                 };
-                generate_prism_model(&app.design.graph, &config)
+                match app.verify.abstraction_mode {
+                    AbstractionMode::Precise => generate_prism_model(&app.design.graph, &config),
+                    AbstractionMode::Quotient => {
+                        generate_quotient_model(&app.design.graph, &config)
+                    }
+                }
             } else {
                 DEMO_PRISM_MODEL.to_owned()
             };
@@ -1143,7 +1166,12 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                     model: app.design.graph.model_config.clone(),
                     ..PrismGenConfig::default()
                 };
-                generate_prism_model(&app.design.graph, &config)
+                match app.verify.abstraction_mode {
+                    AbstractionMode::Precise => generate_prism_model(&app.design.graph, &config),
+                    AbstractionMode::Quotient => {
+                        generate_quotient_model(&app.design.graph, &config)
+                    }
+                }
             } else {
                 DEMO_PRISM_MODEL.to_owned()
             };
