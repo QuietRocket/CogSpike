@@ -83,15 +83,6 @@
   [⚠️ *TODO:* #body],
 )
 
-// Placeholder environment for planned diagrams
-#let diagram-placeholder(title, body) = block(
-  width: 100%,
-  inset: 12pt,
-  fill: rgb("#f0f0ff"),
-  stroke: (left: 3pt + rgb("#6366f1")),
-  radius: 4pt,
-  [📊 *Diagram Placeholder: #title* \ \ #body],
-)
 
 #align(center)[
   #text(size: 16pt, weight: "bold")[
@@ -634,7 +625,7 @@ This section clarifies the relationships between the key variables in our discre
   │          ┌──────────────────┤                                   │
   │          ▼                  ▼                                   │
   │    ┌───────────┐      ┌───────────┐                             │
-  │    │     ℓ     │─────►│   λ_d     │ (Leak depends on T_d & ℓ)  │
+  │    │     ℓ     │─────►│   λ_d     │ (Leak depends on T_d & ℓ)   │
   │    └───────────┘      └───────────┘                             │
   │    (Leak factor)           │                                    │
   │                             ▼                                   │
@@ -712,79 +703,53 @@ The following four diagrams demonstrate model dynamics across two key parameter 
 - *Simulation duration:* 50 ms
 - *Seed:* Fixed (e.g., 42) for deterministic reproduction
 
-#diagram-placeholder("Low Threshold, Low Leak")[
-  *Parameters:*
-  - $T_d = 3$ (discretized threshold), CogSpike `p_rth = 3`
-  - $ell = 0.1$ (10% leak), CogSpike `leak_r = 90`
-  - $lambda_d = -max(1, floor(0.1 dot 3)) = -max(1, 0) = -1$
-  - *Net gain per step:* $3 - 1 = 2$ (strong positive)
+*Diagram 1 — Low Threshold ($T_d = 3$), Low Leak ($ell = 0.1$):*
+$lambda_d = -max(1, floor(0.1 dot 3)) = -1$, net gain $= 3 - 1 = 2$.
 
-  *CogSpike `ModelConfig`:* `threshold_levels = 4`, `p_rth = 3`, `leak_r = 90`, `enable_arp = false`, `enable_rrp = false`
+#grid(
+  columns: 2,
+  gutter: 8pt,
+  figure(image("diagrams/diagram_1_raster.png", width: 100%), caption: [Diagram 1 — Spike Raster]),
+  figure(image("diagrams/diagram_1_potential.png", width: 100%), caption: [Diagram 1 — Membrane Potential]),
+)
 
-  *Expected observations:*
-  - With input weight 3 and threshold 3, the neuron reaches full threshold ($L = N-1$) in a single step
-  - Firing probability = $1.0$ at each step → deterministic firing every step after reset
-  - Raster plot should show near-continuous spiking
-  - Membrane potential trace: rapid sawtooth — rises to threshold immediately, resets, repeats
+With input weight $delta_3(100) = 3$ meeting the threshold $T_d = 3$ in a single step, the neuron fires near-continuously. The potential trace shows rapid oscillation between 0 and 2, with probabilistic firing at sub-threshold levels. This confirms the Feasibility Criterion (§5.1) for the SingleStep case: $E >= T_d$ yields maximum excitability.
 
-  *What this proves:* With low threshold and low leak, the model exhibits maximum excitability. The single-step firing condition ($E >= T_d$) is satisfied, confirming the Feasibility Criterion (§5.1) for the SingleStep case.
-]
+*Diagram 2 — Low Threshold ($T_d = 3$), High Leak ($ell = 0.5$):*
+$lambda_d = -max(1, floor(0.5 dot 3)) = -1$, net gain $= 3 - 1 = 2$.
 
-#diagram-placeholder("Low Threshold, High Leak")[
-  *Parameters:*
-  - $T_d = 3$ (discretized threshold), CogSpike `p_rth = 3`
-  - $ell = 0.5$ (50% leak), CogSpike `leak_r = 50`
-  - $lambda_d = -max(1, floor(0.5 dot 3)) = -max(1, 1) = -1$
-  - *Net gain per step:* $3 - 1 = 2$ (still positive)
+#grid(
+  columns: 2,
+  gutter: 8pt,
+  figure(image("diagrams/diagram_2_raster.png", width: 100%), caption: [Diagram 2 — Spike Raster]),
+  figure(image("diagrams/diagram_2_potential.png", width: 100%), caption: [Diagram 2 — Membrane Potential]),
+)
 
-  *CogSpike `ModelConfig`:* `threshold_levels = 4`, `p_rth = 3`, `leak_r = 50`, `enable_arp = false`, `enable_rrp = false`
+Despite a 5× increase in the leak factor, the behavior is identical to Diagram 1. Because $floor(0.5 dot 3) = 1$, $lambda_d$ remains $-1$ and the single-step firing condition $E >= T_d$ still holds. This confirms that for low-threshold neurons, leak primarily affects the accumulation regime rather than single-step firing frequency.
 
-  *Expected observations:*
-  - Still fires in a single step (net gain = 2 > 0, and $E = 3 >= T_d = 3$)
-  - *Difference from Diagram 1:* Despite higher leak, the low threshold means single-step firing still dominates. The leak factor is noticeable in the slightly lower resting potential between spikes, but firing behavior is similar because $E >= T_d$.
-  - This demonstrates that for low-threshold neurons, leak primarily affects _accumulation-regime_ behavior rather than single-step firing.
+*Diagram 3 — High Threshold ($T_d = 6$), Low Leak ($ell = 0.1$):*
+$lambda_d = -max(1, floor(0.1 dot 6)) = -1$, net gain $= 3 - 1 = 2$, expected ISI $approx ceil(6 / 2) = 3$ steps.
 
-  *What this proves:* When the excitatory input meets or exceeds the threshold in a single step, the leak factor has minimal impact on firing frequency — it only affects the multi-step accumulation regime.
-]
+#grid(
+  columns: 2,
+  gutter: 8pt,
+  figure(image("diagrams/diagram_3_raster.png", width: 100%), caption: [Diagram 3 — Spike Raster]),
+  figure(image("diagrams/diagram_3_potential.png", width: 100%), caption: [Diagram 3 — Membrane Potential]),
+)
 
-#diagram-placeholder("High Threshold, Low Leak")[
-  *Parameters:*
-  - $T_d = 6$ (discretized threshold), CogSpike `p_rth = 6`
-  - $ell = 0.1$ (10% leak), CogSpike `leak_r = 90`
-  - $lambda_d = -max(1, floor(0.1 dot 6)) = -max(1, 0) = -1$
-  - *Net gain per step:* $3 - 1 = 2$ (positive)
-  - *Expected steps to threshold:* $ceil(6 / 2) = 3$ steps
+The neuron enters the _accumulation regime_ — it cannot fire in a single step ($E = 3 < T_d = 6$). The membrane potential trace shows a staircase pattern: $0 -> 2 -> 4 -> ...$, with probabilistic firing at intermediate threshold levels ($P = 0.25$ at $L=1$, $P = 0.5$ at $L=2$, etc.). This demonstrates the Excitability property (§5.3): the neuron integrates input over multiple steps with ISI $approx ceil(T_d / (C_"in" - |lambda_d|))$.
 
-  *CogSpike `ModelConfig`:* `threshold_levels = 4`, `p_rth = 6`, `leak_r = 90`, `enable_arp = false`, `enable_rrp = false`
+*Diagram 4 — High Threshold ($T_d = 6$), High Leak ($ell = 0.5$):*
+$lambda_d = -max(1, floor(0.5 dot 6)) = -3$, net gain $= 3 - 3 = 0$.
 
-  *Expected observations:*
-  - Neuron enters the _accumulation regime_ — cannot fire in a single step ($E = 3 < T_d = 6$)
-  - Potential builds over ~3 steps: $0 -> 2 -> 4 -> 6$ (reaching threshold at step 3)
-  - During accumulation, the neuron passes through threshold levels, gaining increasing firing _probability_ at each step (e.g., $P = 0.25$ at level 1, $P = 0.5$ at level 2, etc.)
-  - Raster plot: periodic spiking with ISI $approx 3$ steps
-  - Membrane potential trace: staircase pattern rising to threshold
+#grid(
+  columns: 2,
+  gutter: 8pt,
+  figure(image("diagrams/diagram_4_raster.png", width: 100%), caption: [Diagram 4 — Spike Raster]),
+  figure(image("diagrams/diagram_4_potential.png", width: 100%), caption: [Diagram 4 — Membrane Potential]),
+)
 
-  *What this proves:* Demonstrates the Excitability property (§5.3): the neuron integrates input over multiple steps, with the ISI determined by $ceil(T_d / (C_"in" - |lambda_d|))$. Also validates the probabilistic graded response during accumulation.
-]
-
-#diagram-placeholder("High Threshold, High Leak")[
-  *Parameters:*
-  - $T_d = 6$ (discretized threshold), CogSpike `p_rth = 6`
-  - $ell = 0.5$ (50% leak), CogSpike `leak_r = 50`
-  - $lambda_d = -max(1, floor(0.5 dot 6)) = -max(1, 3) = -3$
-  - *Net gain per step:* $3 - 3 = 0$ (zero!)
-
-  *CogSpike `ModelConfig`:* `threshold_levels = 4`, `p_rth = 6`, `leak_r = 50`, `enable_arp = false`, `enable_rrp = false`
-
-  *Expected observations:*
-  - *Critical case:* Net gain is exactly 0 — the neuron is at the _feasibility boundary_
-  - The potential plateaus: each step adds $+3$ (input) and $-3$ (leak), resulting in no accumulation
-  - Potential hovers at a low level, never reaching threshold
-  - Raster plot: silence (no spikes emitted)
-  - Membrane potential trace: flat line at the equilibrium point
-
-  *What this proves:* Demonstrates the Feasibility Criterion (§5.1): when $E <= |lambda_d|$ (here $E = |lambda_d| = 3$), the neuron is threshold-infeasible. This is the exact boundary case where the Soundness Theorem (§3.4) guarantees silence. Also illustrates the Leak Factor Dynamics (§4.3): with high leak, the minimum excitation $C_"min" = |lambda_d| + 1 = 4$ exceeds the available input of 3.
-]
+*Critical case:* Net gain is exactly 0 — the neuron is at the _feasibility boundary_. Each step adds $+3$ (input) and $-3$ (leak), resulting in zero accumulation. The membrane potential remains flat at 0 and the raster shows complete silence. This demonstrates the Feasibility Criterion (§5.1): when $E <= |lambda_d|$, the neuron is threshold-infeasible. The Soundness Theorem (§3.4) guarantees silence at this exact boundary. The minimum excitation $C_"min" = |lambda_d| + 1 = 4$ exceeds the available input of 3.
 
 = Conclusion
 
