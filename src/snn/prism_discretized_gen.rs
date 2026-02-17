@@ -539,32 +539,51 @@ fn write_discretized_neuron_module(
     )
     .ok();
 
-    // Compute threshold boundaries for probabilistic firing
-    // Level j fires with probability j/k
-    // Boundary j is at T_d * j / k
+    // Precompute threshold boundaries to ensure complete integer coverage.
+    // boundaries[j] = floor(j * T_d / K) for j=0..K-1, boundaries[K] = T_d.
+    // This guarantees that newP = T_d is covered by Level K-1, and
+    // newP > T_d by Level K (certain fire).
     let step = 1.0 / k as f64;
+    let boundaries: Vec<i32> = (0..=k)
+        .map(|j| {
+            if j == k {
+                t_d
+            } else {
+                (t_d as f64 * j as f64 / k as f64).floor() as i32
+            }
+        })
+        .collect();
 
-    // Level 0: newP <= boundary_1 -> no fire
-    let boundary_1 = t_d as f64 / k as f64;
+    // Level 0: newP <= boundaries[1] -> no fire
     writeln!(
         out,
-        "  // Level 0: newP_{n} <= {:.0} -> no fire",
-        boundary_1.floor()
+        "  // Level 0: newP_{n} <= {} -> no fire",
+        boundaries[1]
     )
     .ok();
     writeln!(
         out,
         "  [tick] {state_guard}y{n} = 0 & newP_{n} <= {} -> (y{n}' = 0) & (p{n}' = newP_{n});",
-        (boundary_1.floor() as i32).max(0)
+        boundaries[1]
     )
     .ok();
 
-    // Levels 1 to k-1: probabilistic firing
+    // Levels 1 to K-1: probabilistic firing
     for j in 1..k {
         let fire_prob = j as f64 * step;
         let no_fire_prob = 1.0 - fire_prob;
-        let lower = (t_d as f64 * (j as f64 - 1.0) / k as f64).floor() as i32;
-        let upper = (t_d as f64 * j as f64 / k as f64).floor() as i32;
+        let lower = boundaries[j];
+        let upper = boundaries[j + 1];
+
+        // Skip degenerate levels where consecutive boundaries are equal
+        if lower == upper {
+            writeln!(
+                out,
+                "  // Level {j}: SKIPPED (degenerate, boundary {lower} = {upper})"
+            )
+            .ok();
+            continue;
+        }
 
         writeln!(
             out,
@@ -579,7 +598,7 @@ fn write_discretized_neuron_module(
         .ok();
     }
 
-    // Level k: above T_d -> certain fire
+    // Level K: above T_d -> certain fire
     writeln!(out, "  // Level {k}: newP_{n} > {t_d} -> certain fire").ok();
     writeln!(
         out,
@@ -627,8 +646,7 @@ fn write_discretized_neuron_module(
         )
         .ok();
 
-        // RRP probabilistic firing (alpha-scaled) — based on current potential level
-        // For simplicity, we check potential against threshold boundaries
+        // RRP probabilistic firing (alpha-scaled) — using precomputed boundaries
         for j in 0..=k {
             let base_prob = if j == 0 {
                 0.0
@@ -640,51 +658,44 @@ fn write_discretized_neuron_module(
             let fire_prob = alpha * base_prob;
             let no_fire_prob = 1.0 - fire_prob;
 
-            let lower = if j == 0 {
-                -1 // matches everything <= boundary_0
-            } else {
-                (t_d as f64 * (j as f64 - 1.0) / k as f64).floor() as i32
-            };
-            let upper = if j == k {
-                // For p_max, this is handled by > upper_prev
-                i32::MAX
-            } else {
-                (t_d as f64 * j as f64 / k as f64).floor() as i32
-            };
-
             if j == 0 {
-                // Lowest level: p <= boundary_1
+                // Lowest level: p <= boundaries[1]
                 if fire_prob.abs() < 1e-9 {
                     writeln!(
                         out,
                         "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= {} -> (y{n}' = 0) & (rref{n}' = rref{n} - 1);",
-                        upper
+                        boundaries[1]
                     ).ok();
                 } else {
                     writeln!(
                         out,
                         "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= {} -> {:.6}:(y{n}' = 0) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1);",
-                        upper, no_fire_prob, fire_prob
+                        boundaries[1], no_fire_prob, fire_prob
                     ).ok();
                 }
             } else if j == k {
-                // Highest level: p > boundary_k-1
-                let prev_upper = (t_d as f64 * ((k - 1) as f64) / k as f64).floor() as i32;
+                // Highest level: p > boundaries[K-1] (= T_d)
                 if (fire_prob - 1.0).abs() < 1e-9 {
                     writeln!(
                         out,
                         "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} -> (y{n}' = 1);",
-                        prev_upper
+                        boundaries[k]
                     )
                     .ok();
                 } else {
                     writeln!(
                         out,
                         "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} -> {:.6}:(y{n}' = 0) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1);",
-                        prev_upper, no_fire_prob, fire_prob
+                        boundaries[k], no_fire_prob, fire_prob
                     ).ok();
                 }
             } else {
+                let lower = boundaries[j];
+                let upper = boundaries[j + 1];
+                // Skip degenerate levels
+                if lower == upper {
+                    continue;
+                }
                 if fire_prob.abs() < 1e-9 {
                     writeln!(
                         out,
