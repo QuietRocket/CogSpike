@@ -5,6 +5,7 @@ authors = ["Nik Zandian <zandian@i3s.unice.fr>"]
 edition = "2024"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
 rust-version = "1.88"
+default-run = "cog_spike"
 
 [[bin]]
 name = "export"
