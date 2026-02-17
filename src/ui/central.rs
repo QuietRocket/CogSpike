@@ -5,8 +5,8 @@ use crate::{
     learning::{collect_learning_targets, estimate_firing_probabilities, run_learning_iteration},
     snn::{
         graph::{NodeId, NodeKind},
+        prism_discretized_gen::generate_discretized_model,
         prism_gen::{PrismGenConfig, generate_pctl_properties, generate_prism_model},
-        prism_quotient_gen::generate_quotient_model,
     },
 };
 
@@ -1002,13 +1002,38 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         );
         ui.selectable_value(
             &mut app.verify.abstraction_mode,
-            AbstractionMode::Quotient,
-            "Quotient ⚡",
+            AbstractionMode::Discretized,
+            "Discretized ⚡",
         )
         .on_hover_text(
-            "Quotient mode: only spike-related properties are preserved.\n\
-             Properties referencing exact potential values will be invalid.",
+            "Discretized model: weights mapped to [-W, W], potentials tracked exactly\n\
+             in reduced domain. Preserves ALL PCTL properties. See paper \u{00a7}7.",
         );
+        // Weight levels slider (only visible in Discretized mode)
+        if app.verify.abstraction_mode == AbstractionMode::Discretized {
+            ui.separator();
+            ui.label("W:");
+            ui.add(
+                egui::Slider::new(&mut app.verify.weight_levels, 1..=10)
+                    .clamping(egui::SliderClamping::Always),
+            )
+            .on_hover_text("Weight discretization levels. Higher = more precise but larger state space.");
+
+            // Show derived parameters
+            let m = &app.design.graph.model_config;
+            let wl = app.verify.weight_levels;
+            let t_d = crate::snn::discretization::discretized_threshold(m.p_rth, wl);
+            let leak_factor = 1.0 - (m.leak_r as f64 / 100.0);
+            let lambda_d = crate::snn::discretization::discretized_leak(leak_factor, t_d);
+            ui.label(
+                egui::RichText::new(format!("T_d={t_d} \u{03bb}_d={lambda_d}"))
+                    .small()
+                    .weak(),
+            )
+            .on_hover_text(format!(
+                "Discretized threshold: {t_d}\nAdditive leak: {lambda_d}\nPotentials tracked in [0..T_d+E]"
+            ));
+        }
     });
     ui.separator();
 
@@ -1023,12 +1048,13 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             let model_text = if app.verify.use_generated_model {
                 let config = PrismGenConfig {
                     model: app.design.graph.model_config.clone(),
+                    weight_levels: app.verify.weight_levels,
                     ..PrismGenConfig::default()
                 };
                 match app.verify.abstraction_mode {
                     AbstractionMode::Precise => generate_prism_model(&app.design.graph, &config),
-                    AbstractionMode::Quotient => {
-                        generate_quotient_model(&app.design.graph, &config)
+                    AbstractionMode::Discretized => {
+                        generate_discretized_model(&app.design.graph, &config)
                     }
                 }
             } else {
@@ -1164,12 +1190,13 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             let model_text = if app.verify.use_generated_model {
                 let config = PrismGenConfig {
                     model: app.design.graph.model_config.clone(),
+                    weight_levels: app.verify.weight_levels,
                     ..PrismGenConfig::default()
                 };
                 match app.verify.abstraction_mode {
                     AbstractionMode::Precise => generate_prism_model(&app.design.graph, &config),
-                    AbstractionMode::Quotient => {
-                        generate_quotient_model(&app.design.graph, &config)
+                    AbstractionMode::Discretized => {
+                        generate_discretized_model(&app.design.graph, &config)
                     }
                 }
             } else {

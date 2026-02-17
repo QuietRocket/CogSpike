@@ -5,8 +5,8 @@ use crate::{
     },
     snn::{
         graph::{NodeId, NodeKind, SnnGraph},
+        prism_discretized_gen::generate_discretized_model,
         prism_gen::{PrismGenConfig, generate_prism_model},
-        prism_quotient_gen::generate_quotient_model,
     },
     ui::{central, inspector_panel, log_panel, project_explorer, top_bar},
 };
@@ -84,17 +84,17 @@ impl Default for Mode {
 /// Abstraction mode for PRISM model generation.
 ///
 /// Controls whether the verification uses the precise model (exact membrane potentials)
-/// or a quotient model (potentials abstracted to firing probability classes).
+/// or a discretized model (weights discretized for massive state space reduction).
 #[derive(serde::Deserialize, serde::Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum AbstractionMode {
-    /// Full precision: exact membrane potentials tracked.
+    /// Full precision: exact membrane potentials tracked with raw weights.
     /// Required for properties that reference specific potential values.
     #[default]
     Precise,
-    /// Quotient abstraction: potentials abstracted to firing probability classes.
-    /// Preserves spike-related PCTL properties with ~10^9 state space reduction.
-    /// WARNING: Properties referencing exact potential values will be invalid.
-    Quotient,
+    /// Discretized model: weights mapped to [-W, W], potentials tracked exactly
+    /// in the reduced domain [0..T_d+E]. Preserves ALL PCTL properties while
+    /// achieving ~50-170x state reduction per neuron. See paper §7.
+    Discretized,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
@@ -327,9 +327,12 @@ pub struct VerifyState {
     #[serde(default)]
     pub(crate) prism_options: PrismEngineOptions,
     /// Abstraction mode for PRISM model generation.
-    /// Quotient mode provides ~10^9 state reduction but only preserves spike-related properties.
+    /// Discretized mode uses weight discretization for state reduction while preserving all properties.
     #[serde(default)]
     pub(crate) abstraction_mode: AbstractionMode,
+    /// Weight discretization levels (W) for discretized mode. Default 3.
+    #[serde(default = "default_weight_levels")]
+    pub(crate) weight_levels: u8,
 }
 
 impl Default for VerifyState {
@@ -353,8 +356,13 @@ impl Default for VerifyState {
             last_training_result: None,
             prism_options: PrismEngineOptions::default(),
             abstraction_mode: AbstractionMode::default(),
+            weight_levels: 3,
         }
     }
+}
+
+fn default_weight_levels() -> u8 {
+    3
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -471,12 +479,15 @@ impl TemplateApp {
             // Generate from the design graph using the graph's model config
             let config = PrismGenConfig {
                 model: self.design.graph.model_config.clone(),
+                weight_levels: self.verify.weight_levels,
                 ..PrismGenConfig::default()
             };
             // Use quotient or precise generator based on abstraction mode
             match self.verify.abstraction_mode {
                 AbstractionMode::Precise => generate_prism_model(&self.design.graph, &config),
-                AbstractionMode::Quotient => generate_quotient_model(&self.design.graph, &config),
+                AbstractionMode::Discretized => {
+                    generate_discretized_model(&self.design.graph, &config)
+                }
             }
         } else {
             // Use demo model

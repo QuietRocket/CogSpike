@@ -18,6 +18,9 @@ pub struct PrismGenConfig {
     pub time_bound: Option<u32>,
     /// Model configuration (threshold levels, refractory toggles).
     pub model: ModelConfig,
+    /// Weight discretization levels (W) for discretized mode.
+    /// Default 3 → weights mapped to [-3, 3]. Only used by the discretized generator.
+    pub weight_levels: u8,
 }
 
 impl Default for PrismGenConfig {
@@ -28,6 +31,7 @@ impl Default for PrismGenConfig {
             include_rewards: true,
             time_bound: Some(100),
             model: ModelConfig::default(),
+            weight_levels: 3,
         }
     }
 }
