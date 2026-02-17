@@ -108,15 +108,6 @@ We address this by introducing a _weight discretization scheme_ that:
 3. Ensures threshold feasibility is maintained
 4. Retains weight visibility in the generated PRISM model
 
-*What's New in Revision 5:*
-- Proper mathematical notation throughout ($floor(dot)$/$ceil(dot)$ brackets, operator names)
-- Leak factor $ell$ replaces retention rate $r$ as primary variable for consistency
-- Leak factor dynamics analysis: signal contribution, spike difficulty, expected spike count (§4.3)
-- Probabilistic formulation of biological property preservation (§5.3)
-- Completed soundness proof with zero-potential non-spiking guarantee (§3.4)
-- Four simulation diagram placeholders with exact parameter configurations (§8)
-- Variable dependency graph updated for leak factor formulation (§6)
-
 = Preliminaries
 
 This section introduces key concepts and notation used throughout the proofs.
@@ -148,13 +139,13 @@ This section introduces key concepts and notation used throughout the proofs.
 
 == The Rounding Property
 
-The standard mathematical rounding function $op("round")(x)$ rounds $x$ to the nearest integer. A crucial property we use throughout is the _rounding bound_:
+The standard mathematical rounding function $lr(⌊ x ⌉)$ rounds $x$ to the nearest integer. A crucial property we use throughout is the _rounding bound_:
 
 #definition[
   For any real number $x$, the rounding function satisfies:
-  $ x - 1/2 <= op("round")(x) <= x + 1/2 $
+  $ x - 1/2 <= lr(⌊ x ⌉) <= x + 1/2 $
 
-  Equivalently: $op("round")(x) >= x - 1/2$ (lower bound) and $op("round")(x) <= x + 1/2$ (upper bound).
+  Equivalently: $lr(⌊ x ⌉) >= x - 1/2$ (lower bound) and $lr(⌊ x ⌉) <= x + 1/2$ (upper bound).
 ]
 
 #intuition[
@@ -194,23 +185,23 @@ The standard mathematical rounding function $op("round")(x)$ rounds $x$ to the n
 
 #definition[
   Given a weight range $[w_"min", w_"max"] = [-100, 100]$ and a discretization parameter $W in NN^+$, the _weight discretization function_ $delta_W : RR -> ZZ$ is defined as:
-  $ delta_W (w) = op("round")(w dot W / w_"max") $
+  $ delta_W (w) = lr(⌊ w dot W / w_"max" ⌉) $
 
   The discretized weight range is $[-W, W] subset ZZ$.
 ]
 
 #intuition[
-  We scale the original weight by $W / w_"max"$ to map the range $[-w_"max", w_"max"]$ to $[-W, W]$, then round to get an integer. This preserves the _relative magnitude_ of weights while reducing the number of distinct values.
+  We scale the original weight by $W / w_"max"$ to map the range $[-w_"max", w_"max"]$ to $[-W, W]$, then round to the nearest integer. This preserves the _relative magnitude_ of weights while reducing the number of distinct values.
 ]
 
 #example[
   For $W = 3$ (giving 7 discrete levels: $-3, -2, -1, 0, 1, 2, 3$):
-  - $delta_3(100) = op("round")(100 dot 3 / 100) = op("round")(3) = 3$ (strong excitatory)
-  - $delta_3(67) = op("round")(67 dot 3 / 100) = op("round")(2.01) = 2$ (medium excitatory)
-  - $delta_3(33) = op("round")(33 dot 3 / 100) = op("round")(0.99) = 1$ (weak excitatory)
-  - $delta_3(0) = op("round")(0) = 0$ (negligible)
-  - $delta_3(-50) = op("round")(-50 dot 3 / 100) = op("round")(-1.5) = -2$ (medium inhibitory)
-  - $delta_3(-100) = op("round")(-3) = -3$ (strong inhibitory)
+  - $delta_3(100) = lr(⌊ 100 dot 3 / 100 ⌉) = lr(⌊ 3 ⌉) = 3$ (strong excitatory)
+  - $delta_3(67) = lr(⌊ 67 dot 3 / 100 ⌉) = lr(⌊ 2.01 ⌉) = 2$ (medium excitatory)
+  - $delta_3(33) = lr(⌊ 33 dot 3 / 100 ⌉) = lr(⌊ 0.99 ⌉) = 1$ (weak excitatory)
+  - $delta_3(0) = lr(⌊ 0 ⌉) = 0$ (negligible)
+  - $delta_3(-50) = lr(⌊ -50 dot 3 / 100 ⌉) = lr(⌊ -1.5 ⌉) = -2$ (medium inhibitory)
+  - $delta_3(-100) = lr(⌊ -3 ⌉) = -3$ (strong inhibitory)
 ]
 
 == Threshold Calibration
@@ -251,7 +242,7 @@ The key challenge is ensuring that threshold reachability is preserved after dis
 
   #proofstep(3, "Apply the rounding property")[
     By the rounding property (see §2.2), for each weight:
-    $ delta_W (w_i) = op("round")(w_i dot W / w_"max") >= (w_i dot W) / w_"max" - 1/2 $
+    $ delta_W (w_i) = lr(⌊ w_i dot W / w_"max" ⌉) >= (w_i dot W) / w_"max" - 1/2 $
 
     Since $y_i^* in {0, 1}$, when $y_i^* = 1$ this bound applies, and when $y_i^* = 0$ the term is zero. Summing over all inputs:
     $
@@ -362,7 +353,7 @@ In the original quotient model, class evolution used a binary rule which loses w
 
 #definition[
   The _class delta function_ $Delta: ZZ -> ZZ$ maps contribution to class change:
-  $ Delta(C) = op("clamp")(op("round")(C / gamma), -k, k) $
+  $ Delta(C) = op("clamp")(lr(⌊ C / gamma ⌉), -k, k) $
   where:
   - $gamma$ is the _class width_ (typically $gamma = T_d / k$) — the potential range each class represents
   - $k$ is the number of threshold levels
@@ -370,7 +361,7 @@ In the original quotient model, class evolution used a binary rule which loses w
 ]
 
 #intuition[
-  The class delta converts a weighted sum of inputs into a class change. We divide by $gamma$ to express the contribution in "class units", round to get an integer, and clamp to prevent impossibly large jumps.
+  The class delta converts a weighted sum of inputs into a class change. We divide by $gamma$ to express the contribution in "class units", round to the nearest integer, and clamp to prevent impossibly large jumps.
 ]
 
 == Threshold-Dependent Leak Factor
@@ -406,11 +397,7 @@ The quotient model must also account for membrane potential decay (leak). We def
 ]
 
 #remark[
-  *Key Insight:* The previous formulation $lambda_d = -op("round")(ell dot k)$ was problematic because:
-  1. It depended on $k$ (number of classes) rather than $T_d$ (actual potential scale)
-  2. Could result in $lambda_d = 0$ for low leak, violating the Soundness theorem
-
-  The new formulation ensures $|lambda_d| >= 1$ always, guaranteeing the Asymptotic Silence property.
+  *Key Insight:* Linking $lambda_d$ to $T_d$ rather than $k$ is essential. If $lambda_d$ depended on $k$ (number of classes), it could result in $lambda_d = 0$ for low leak, violating the Soundness theorem. The formulation $lambda_d = -max(1, floor(ell dot T_d))$ ensures $|lambda_d| >= 1$ always, guaranteeing the Asymptotic Silence property.
 ]
 
 The class evolution rule becomes:
@@ -433,10 +420,10 @@ The retained potential from the previous step is scaled by $(1 - ell)$, while th
     inset: 8pt,
     align: (center, center, left),
     [*Leak factor $ell$*], [*Retention $(1-ell)$*], [*Effect on signal*],
-    [$ell -> 0$], [$approx 1$], [Past and present signals weighted equally — full memory],
-    [$ell = 0.1$], [$0.9$], [Mild decay; accumulated history dominates],
-    [$ell = 0.5$], [$0.5$], [Current input and history contribute equally],
-    [$ell -> 1$], [$approx 0$], [Only the current input matters — no memory],
+    [$ell -> 0$], [$approx 1$], [Nearly all potential is preserved — long-term accumulation across many steps],
+    [$ell = 0.1$], [$0.9$], [Slow decay; potential builds over $approx 10$ steps before significant loss],
+    [$ell = 0.5$], [$0.5$], [Potential halved each step; only the last $approx 2$–$3$ steps influence firing],
+    [$ell -> 1$], [$approx 0$], [Potential discarded each step — only the current input determines firing],
   ),
   caption: [Signal contribution as a function of leak factor],
 )
@@ -625,7 +612,7 @@ This section clarifies the relationships between the key variables in our discre
   │          ┌──────────────────┤                                   │
   │          ▼                  ▼                                   │
   │    ┌───────────┐      ┌───────────┐                             │
-  │    │     ℓ     │─────►│   λ_d     │ (Leak depends on T_d & ℓ)   │
+  │    │     l     │─────►│   λ_d     │ (Leak depends on T_d & l)   │
   │    └───────────┘      └───────────┘                             │
   │    (Leak factor)           │                                    │
   │                             ▼                                   │
@@ -642,19 +629,16 @@ This section clarifies the relationships between the key variables in our discre
 
 #figure(
   table(
-    columns: (auto, 1fr, 1fr),
+    columns: (auto, 1fr),
     inset: 8pt,
-    align: (center, left, left),
-    [*Variable*], [*Previous Definition*], [*Revised Definition (v5)*],
-    [$lambda_d$],
-    [$-op("round")(ell dot k)$\ (Depends on classes $k$)],
-    [$-max(1, floor(ell dot T_d))$\ (Depends on threshold $T_d$)],
-
-    [$T_d$], [$ceil(T dot W / w_"max")$], [Unchanged],
-    [$k$], [Independent parameter], [Remains for class discretization, but $lambda_d$ now independent of $k$],
-    [$ell$], [Not used (retention rate $r$ used instead)], [Primary leak variable: $ell = 1 - r$],
+    align: (center, left),
+    [*Variable*], [*Definition*],
+    [$lambda_d$], [$-max(1, floor(ell dot T_d))$ — depends on threshold $T_d$ and leak factor $ell$],
+    [$T_d$], [$ceil(T dot W / w_"max")$ — discretized firing threshold],
+    [$k$], [Number of threshold levels (independent of $lambda_d$)],
+    [$ell$], [Leak factor: $ell = 1 - r$ where $r$ is the retention rate],
   ),
-  caption: [Summary of variable definition changes between revisions],
+  caption: [Summary of variable definitions],
 )
 
 = PRISM Model Structure
@@ -753,7 +737,7 @@ $lambda_d = -max(1, floor(0.5 dot 6)) = -3$, net gain $= 3 - 3 = 0$.
 
 = Conclusion
 
-We have established a formal framework for weight discretization in quotient model abstraction. The key contributions in this revision include:
+We have established a formal framework for weight discretization in quotient model abstraction. The key contributions include:
 
 1. *Threshold-Dependent Leak:* The formulation $lambda_d = -max(1, floor(ell dot T_d))$ using the leak factor $ell$ ensures leak scales with the actual potential range, not the arbitrary number of classes.
 
@@ -763,14 +747,9 @@ We have established a formal framework for weight discretization in quotient mod
 
 4. *Leak Factor Dynamics:* Analysis of the three key correlations: how the leak factor $ell$ controls current signal contribution, spike emission difficulty (minimum excitation $C_"min"$), and expected spike frequency.
 
-5. *Variable Dependency Clarification:* Clear documentation of how $lambda_d$ depends on $T_d$ and $ell$, breaking the previous incorrect dependency on $k$.
+5. *Variable Dependency Clarification:* Clear documentation of how $lambda_d$ depends on $T_d$ and $ell$ rather than on the number of classes $k$.
 
 6. *Simulation Verification Plan:* Four precisely specified diagram configurations (two thresholds $times$ two leak factors) to empirically validate the model dynamics using CogSpike's simulation engine.
-
-*Future Work:*
-- Generate the four simulation diagrams via CogSpike CLI export mode
-- Formal PRISM model checking with the revised leak formulation
-- Extend to multi-neuron networks with inter-neuron weight calibration
 
 #v(1cm)
 #line(length: 100%)
