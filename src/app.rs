@@ -36,14 +36,18 @@ label "goal_state" = s=1;
 label "error_state" = s=2;
 "#;
 
-/// The shallow, UI-first application state with a basic PRISM integration stub.
+/// The application state for CogSpike Workbench.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct TemplateApp {
     pub(crate) mode: Mode,
     pub(crate) backend: BackendChoice,
     pub(crate) selection: Selection,
-    pub(crate) demo: DemoProject,
+    pub(crate) networks: Vec<ProjectNetwork>,
+    pub(crate) simulations: Vec<ProjectSimulation>,
+    pub(crate) properties: Vec<ProjectProperty>,
+    pub(crate) sim_runs: Vec<SimulationRunRecord>,
+    pub(crate) verify_runs: Vec<VerificationRunRecord>,
     pub(crate) design: DesignState,
     pub(crate) simulate: SimulateState,
     pub(crate) verify: VerifyState,
@@ -54,6 +58,14 @@ pub struct TemplateApp {
     pub(crate) log_window_open: bool,
     #[serde(skip)]
     pub(crate) draft_log: String,
+    /// Sidebar UI state: inline rename.
+    #[serde(skip)]
+    pub(crate) rename_target: Option<RenameTarget>,
+    #[serde(skip)]
+    pub(crate) rename_buffer: String,
+    /// Sidebar UI state: pending delete confirmation.
+    #[serde(skip)]
+    pub(crate) pending_delete: Option<DeleteTarget>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -99,10 +111,11 @@ pub enum AbstractionMode {
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub struct Selection {
-    pub(crate) network: Option<String>,
-    pub(crate) simulation: Option<String>,
-    pub(crate) property: Option<String>,
-    pub(crate) run: Option<String>,
+    pub(crate) network: Option<usize>,
+    pub(crate) simulation: Option<usize>,
+    pub(crate) property: Option<usize>,
+    pub(crate) sim_run: Option<usize>,
+    pub(crate) verify_run: Option<usize>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -365,12 +378,64 @@ fn default_weight_levels() -> u8 {
     3
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct DemoProject {
-    pub(crate) networks: Vec<String>,
-    pub(crate) simulations: Vec<String>,
-    pub(crate) properties: Vec<String>,
-    pub(crate) runs: Vec<String>,
+// ============================================================================
+// Project Item Types
+// ============================================================================
+
+/// A named SNN network in the project.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct ProjectNetwork {
+    pub name: String,
+    pub graph: SnnGraph,
+}
+
+/// A named simulation configuration.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct ProjectSimulation {
+    pub name: String,
+    pub config: crate::simulation::SimulationConfig,
+}
+
+/// A named PCTL property for verification.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct ProjectProperty {
+    pub name: String,
+    pub description: String,
+    pub formula: String,
+}
+
+/// A recorded simulation run with full result data.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct SimulationRunRecord {
+    pub label: String,
+    pub network_name: String,
+    pub result: crate::simulation::SimulationResult,
+}
+
+/// A recorded verification run with full result data.
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct VerificationRunRecord {
+    pub label: String,
+    pub network_name: String,
+    pub property_name: String,
+    pub formula: String,
+    pub result: PrismResponse,
+}
+
+/// Target for inline rename in the sidebar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RenameTarget {
+    Network(usize),
+    Simulation(usize),
+    Property(usize),
+}
+
+/// Target for pending delete confirmation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeleteTarget {
+    Network(usize),
+    Simulation(usize),
+    Property(usize),
 }
 
 fn default_prism_path() -> String {
@@ -380,42 +445,40 @@ fn default_prism_path() -> String {
     "prism".to_owned()
 }
 
-impl Default for DemoProject {
-    fn default() -> Self {
-        Self {
-            networks: vec![
-                "Navigation SNN".to_owned(),
-                "Obstacle Avoider".to_owned(),
-                "Toy Circuit".to_owned(),
-            ],
-            simulations: vec![
-                "Baseline".to_owned(),
-                "High noise".to_owned(),
-                "Ablation study".to_owned(),
-            ],
-            properties: vec![
-                "Safety: avoid_error".to_owned(),
-                "Reachability: goal".to_owned(),
-                "Liveness: keep_firing".to_owned(),
-            ],
-            runs: vec![
-                "Sim run #12".to_owned(),
-                "Sim run #13".to_owned(),
-                "Verify run #4".to_owned(),
-            ],
-        }
-    }
-}
-
 impl Default for TemplateApp {
     fn default() -> Self {
         let backend = BackendChoice::default();
         let model_checker = Self::build_model_checker(&backend.prism_path);
+
+        let default_network = ProjectNetwork {
+            name: "Navigation SNN".to_owned(),
+            graph: SnnGraph::demo_layout(),
+        };
+        let default_simulation = ProjectSimulation {
+            name: "Baseline".to_owned(),
+            config: crate::simulation::SimulationConfig::default(),
+        };
+        let default_property = ProjectProperty {
+            name: "Output spike".to_owned(),
+            description: "Probability that output neuron spikes".to_owned(),
+            formula: "P=? [ F \"output_spike\" ]".to_owned(),
+        };
+
         Self {
             mode: Mode::Design,
             backend,
-            selection: Selection::default(),
-            demo: DemoProject::default(),
+            selection: Selection {
+                network: Some(0),
+                simulation: Some(0),
+                property: Some(0),
+                sim_run: None,
+                verify_run: None,
+            },
+            networks: vec![default_network],
+            simulations: vec![default_simulation],
+            properties: vec![default_property],
+            sim_runs: Vec::new(),
+            verify_runs: Vec::new(),
             design: DesignState::default(),
             simulate: SimulateState::default(),
             verify: VerifyState::default(),
@@ -428,6 +491,9 @@ impl Default for TemplateApp {
             follow_logs: true,
             log_window_open: true,
             draft_log: String::new(),
+            rename_target: None,
+            rename_buffer: String::new(),
+            pending_delete: None,
         }
     }
 }
@@ -441,6 +507,8 @@ impl TemplateApp {
                 let prism_path = app.backend.prism_path.clone();
                 app.model_checker = Self::build_model_checker(&prism_path);
             }
+            // Sync the design graph from the selected network
+            app.sync_graph_from_selection();
             app
         } else {
             Default::default()
@@ -474,6 +542,223 @@ impl TemplateApp {
         self.design.last_interaction = Some([pos.x, pos.y]);
     }
 
+    // ========================================================================
+    // Active project item helpers
+    // ========================================================================
+
+    /// Get the name of the currently selected network, or a fallback.
+    pub(crate) fn active_network_name(&self) -> &str {
+        self.selection
+            .network
+            .and_then(|i| self.networks.get(i))
+            .map(|n| n.name.as_str())
+            .unwrap_or("(none)")
+    }
+
+    /// Get the PCTL formula from the active property, falling back to verify.current_formula.
+    pub(crate) fn active_formula(&self) -> String {
+        self.selection
+            .property
+            .and_then(|i| self.properties.get(i))
+            .map(|p| p.formula.clone())
+            .unwrap_or_else(|| self.verify.current_formula.clone())
+    }
+
+    /// Get the description from the active property, falling back to verify.description.
+    #[allow(dead_code)]
+    pub(crate) fn active_description(&self) -> String {
+        self.selection
+            .property
+            .and_then(|i| self.properties.get(i))
+            .map(|p| p.description.clone())
+            .unwrap_or_else(|| self.verify.description.clone())
+    }
+
+    /// Sync design.graph FROM the selected network.
+    /// Call this when the selection changes.
+    pub(crate) fn sync_graph_from_selection(&mut self) {
+        if let Some(idx) = self.selection.network {
+            if let Some(net) = self.networks.get(idx) {
+                self.design.graph = net.graph.clone();
+            }
+        }
+        // Also sync the formula from the active property
+        if let Some(pi) = self.selection.property {
+            if let Some(prop) = self.properties.get(pi) {
+                self.verify.current_formula = prop.formula.clone();
+                self.verify.description = prop.description.clone();
+            }
+        }
+        // Also sync the simulation config + individual UI fields
+        if let Some(si) = self.selection.simulation {
+            if let Some(sim) = self.simulations.get(si) {
+                self.simulate.config = sim.config.clone();
+                self.simulate.duration_ms = sim.config.duration_ms;
+                self.simulate.record_spikes = sim.config.record_spikes;
+                self.simulate.record_membrane = sim.config.record_potentials;
+            }
+        }
+    }
+
+    /// Sync the design.graph BACK to the selected network.
+    /// Call this before switching networks or before saving.
+    pub(crate) fn sync_graph_to_selection(&mut self) {
+        if let Some(idx) = self.selection.network {
+            if let Some(net) = self.networks.get_mut(idx) {
+                net.graph = self.design.graph.clone();
+            }
+        }
+        // Also sync formula back to the active property
+        if let Some(pi) = self.selection.property {
+            if let Some(prop) = self.properties.get_mut(pi) {
+                prop.formula = self.verify.current_formula.clone();
+                prop.description = self.verify.description.clone();
+            }
+        }
+        // Also sync simulation config back (merge individual UI fields first)
+        if let Some(si) = self.selection.simulation {
+            if let Some(sim) = self.simulations.get_mut(si) {
+                sim.config.duration_ms = self.simulate.duration_ms;
+                sim.config.record_spikes = self.simulate.record_spikes;
+                sim.config.record_potentials = self.simulate.record_membrane;
+                sim.config.model = self.simulate.config.model.clone();
+                sim.config.seed = self.simulate.config.seed;
+            }
+        }
+    }
+
+    /// Select a network by index, syncing the graph.
+    pub(crate) fn select_network(&mut self, idx: usize) {
+        // Save current graph back first
+        self.sync_graph_to_selection();
+        self.selection.network = Some(idx);
+        self.sync_graph_from_selection();
+        // Clear design selection state
+        self.design.selected_node = None;
+        self.design.selected_edge = None;
+        self.design.connecting_from = None;
+    }
+
+    /// Select a simulation by index, syncing the config.
+    pub(crate) fn select_simulation(&mut self, idx: usize) {
+        // Save current state back to the old simulation first.
+        // The UI writes to individual fields on SimulateState, so we must
+        // merge those back into the config before storing.
+        if let Some(si) = self.selection.simulation {
+            if let Some(sim) = self.simulations.get_mut(si) {
+                sim.config.duration_ms = self.simulate.duration_ms;
+                sim.config.record_spikes = self.simulate.record_spikes;
+                sim.config.record_potentials = self.simulate.record_membrane;
+                sim.config.model = self.simulate.config.model.clone();
+                sim.config.seed = self.simulate.config.seed;
+            }
+        }
+        // Load the new simulation's config into the UI fields
+        self.selection.simulation = Some(idx);
+        if let Some(sim) = self.simulations.get(idx) {
+            self.simulate.duration_ms = sim.config.duration_ms;
+            self.simulate.record_spikes = sim.config.record_spikes;
+            self.simulate.record_membrane = sim.config.record_potentials;
+            self.simulate.config = sim.config.clone();
+        }
+    }
+
+    /// Select a property by index, syncing the formula.
+    pub(crate) fn select_property(&mut self, idx: usize) {
+        // Save current formula back first
+        if let Some(pi) = self.selection.property {
+            if let Some(prop) = self.properties.get_mut(pi) {
+                prop.formula = self.verify.current_formula.clone();
+                prop.description = self.verify.description.clone();
+            }
+        }
+        self.selection.property = Some(idx);
+        if let Some(prop) = self.properties.get(idx) {
+            self.verify.current_formula = prop.formula.clone();
+            self.verify.description = prop.description.clone();
+        }
+    }
+
+    /// Record a completed simulation run with full results.
+    pub(crate) fn record_sim_run(&mut self, result: crate::simulation::SimulationResult) {
+        let label = format!("Sim #{}", self.sim_runs.len() + 1);
+        let network_name = self.active_network_name().to_owned();
+        self.sim_runs.push(SimulationRunRecord {
+            label,
+            network_name,
+            result,
+        });
+        self.selection.sim_run = Some(self.sim_runs.len() - 1);
+    }
+
+    /// Record a completed verification run with full results.
+    pub(crate) fn record_verify_run(&mut self, result: PrismResponse) {
+        let label = format!("Verify #{}", self.verify_runs.len() + 1);
+        let network_name = self.active_network_name().to_owned();
+        let property_name = self
+            .selection
+            .property
+            .and_then(|i| self.properties.get(i))
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        let formula = self.active_formula();
+        self.verify_runs.push(VerificationRunRecord {
+            label,
+            network_name,
+            property_name,
+            formula,
+            result,
+        });
+        self.selection.verify_run = Some(self.verify_runs.len() - 1);
+    }
+
+    /// Restore a simulation run: switch to Simulate mode, load result, try to select network.
+    pub(crate) fn restore_sim_run(&mut self, idx: usize) {
+        let Some(run) = self.sim_runs.get(idx).cloned() else {
+            return;
+        };
+        self.selection.sim_run = Some(idx);
+        self.mode = Mode::Simulate;
+        self.simulate.last_result = Some(run.result);
+        // Try to select the matching network by name
+        if let Some(net_idx) = self
+            .networks
+            .iter()
+            .position(|n| n.name == run.network_name)
+        {
+            self.select_network(net_idx);
+        }
+        self.push_log(format!("Restored {}", run.label));
+    }
+
+    /// Restore a verification run: switch to Verify mode, load result, try to select network/property.
+    pub(crate) fn restore_verify_run(&mut self, idx: usize) {
+        let Some(run) = self.verify_runs.get(idx).cloned() else {
+            return;
+        };
+        self.selection.verify_run = Some(idx);
+        self.mode = Mode::Verify;
+        self.verify.last_result = Some(run.result);
+        self.verify.last_error = None;
+        // Try to select matching network
+        if let Some(net_idx) = self
+            .networks
+            .iter()
+            .position(|n| n.name == run.network_name)
+        {
+            self.select_network(net_idx);
+        }
+        // Try to select matching property
+        if let Some(prop_idx) = self
+            .properties
+            .iter()
+            .position(|p| p.name == run.property_name)
+        {
+            self.select_property(prop_idx);
+        }
+        self.push_log(format!("Restored {}", run.label));
+    }
+
     fn prism_request_from_state(&self) -> PrismRequest {
         let model = if self.verify.use_generated_model {
             // Generate from the design graph using the graph's model config
@@ -494,7 +779,7 @@ impl TemplateApp {
             DEMO_PRISM_MODEL.to_owned()
         };
 
-        let formula = self.verify.current_formula.clone();
+        let formula = self.active_formula();
 
         PrismRequest {
             model,
@@ -552,6 +837,7 @@ impl TemplateApp {
 
             match result {
                 Ok(response) => {
+                    self.record_verify_run(response.clone());
                     self.verify.last_result = Some(response);
                     self.verify.last_error = None;
                     self.push_log(format!("PRISM finished in {elapsed:.1?}"));
@@ -612,7 +898,7 @@ impl TemplateApp {
         // Clone the necessary state for the training thread
         let mut graph = self.design.graph.clone();
         let config = self.verify.learning_config.clone();
-        let formula = self.verify.current_formula.clone();
+        let formula = self.active_formula();
         let use_generated_model = self.verify.use_generated_model;
 
         // Channels for progress and result
@@ -795,6 +1081,7 @@ impl TemplateApp {
 
 impl eframe::App for TemplateApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.sync_graph_to_selection();
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 

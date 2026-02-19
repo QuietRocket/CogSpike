@@ -441,7 +441,7 @@ fn simulate_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) 
 
     ui.horizontal(|ui| {
         ui.label("Network:");
-        ui.strong(app.selection.network.as_deref().unwrap_or("Pick a network"));
+        ui.strong(app.active_network_name());
         ui.separator();
 
         let has_job = app.simulate.simulation_job.is_some();
@@ -520,6 +520,7 @@ fn poll_simulation_job(app: &mut TemplateApp) {
                 "Simulation complete: {} steps, {} spikes",
                 result.total_steps, total_spikes
             ));
+            app.record_sim_run(result.clone());
             app.simulate.last_result = Some(result);
             app.simulate.simulation_job = None;
             app.simulate.running = false;
@@ -958,7 +959,8 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.strong(
             app.selection
                 .property
-                .as_deref()
+                .and_then(|i| app.properties.get(i))
+                .map(|p| p.name.as_str())
                 .unwrap_or("Select a property"),
         );
         ui.separator();
@@ -1170,11 +1172,22 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.columns(2, |columns| {
         columns[0].label("Properties");
         egui::ScrollArea::vertical().show(&mut columns[0], |ui| {
-            for prop in &app.demo.properties {
-                let selected = app.selection.property.as_deref() == Some(prop.as_str());
-                if ui.selectable_label(selected, prop).clicked() {
-                    app.selection.property = Some(prop.clone());
+            // Collect to break the immutable borrow on app.properties
+            let items: Vec<(usize, String)> = app
+                .properties
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i, p.name.clone()))
+                .collect();
+            let mut clicked_idx = None;
+            for (idx, name) in &items {
+                let selected = app.selection.property == Some(*idx);
+                if ui.selectable_label(selected, name).clicked() {
+                    clicked_idx = Some(*idx);
                 }
+            }
+            if let Some(idx) = clicked_idx {
+                app.select_property(idx);
             }
         });
 

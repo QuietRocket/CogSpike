@@ -14,11 +14,7 @@ pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 #[expect(clippy::too_many_lines)]
 fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
     ui.label("Network");
-    let current = app
-        .selection
-        .network
-        .as_deref()
-        .unwrap_or("Select a network");
+    let current = app.active_network_name();
     ui.strong(current);
     ui.separator();
 

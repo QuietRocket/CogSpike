@@ -398,14 +398,14 @@ pub struct TransferState {
 }
 
 /// Record of a single spike event.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpikeEvent {
     pub neuron_id: NodeId,
     pub time_step: u32,
 }
 
 /// Recorded history for visualization.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SimulationHistory {
     /// All spike events (sorted by time).
     pub spikes: Vec<SpikeEvent>,
@@ -462,7 +462,7 @@ impl Default for SimulationConfig {
 // ============================================================================
 
 /// Result of a simulation run.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
     /// Recorded history for visualization.
     pub history: SimulationHistory,
