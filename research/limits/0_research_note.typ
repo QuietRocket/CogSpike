@@ -69,6 +69,12 @@
   [*Remark.* #body],
 )
 
+#let proofstep(num, title, body) = block(
+  width: 100%,
+  inset: (left: 12pt, top: 4pt, bottom: 4pt),
+  [*Step #num* (#title)*:* #body],
+)
+
 // ============================================================================
 // DOCUMENT
 // ============================================================================
@@ -90,13 +96,16 @@
 
 *Abstract.* We analyze how the topology of a Spiking Neural Network (SNN) determines
 the state space of its corresponding DTMC (Discrete-Time Markov Chain) representation
-used for formal verification in PRISM. We derive closed-form expressions for state space
-size as a function of network structure and model configuration, validate them empirically
-against PRISM DTMC exports, and characterize the scaling limits of verification for
-different connectivity patterns. We show that discretized models achieve exponential
-state space reduction per neuron, and that the practical verification limit of a 4-neuron
-chain under the full model exceeds 362,000 states — with the precise diamond topology
-already exceeding PRISM's BDD memory at 5 neurons.
+used for formal verification in PRISM. We derive closed-form expressions for DTMC
+state space size as a function of network structure and model configuration, and validate
+them empirically by exporting DTMCs from PRISM across seven canonical topologies.
+Our central finding is that state space grows _exponentially_ in the number of processing
+neurons, with the multiplicative base per neuron determined by the model configuration.
+We further show that the weight discretization scheme of @weight-disc provides an
+exponentially compounding reduction — each additional neuron multiplies the savings —
+making verification of substantially larger networks feasible. We characterize the
+practical verification limits for chains, forks, and diamond topologies, and identify
+BDD variable ordering in PRISM's CUDD engine as the binding memory constraint.
 
 = Introduction
 
@@ -175,19 +184,70 @@ Cartesian product. CogSpike generates the following module types:
   where $E_"int" = {(i,j) in E : i in V_"proc"}$ is the set of internal (neuron-to-neuron) edges.
 ]
 
-== Model Configuration
+#intuition[
+  Each processing neuron becomes its own PRISM module with local state variables
+  (potential, spike, refractory counters). Each internal edge gets a transfer module
+  carrying the spike signal from source to target. The key insight is that these
+  modules are _independent_: they synchronize only through shared labels (`tick`),
+  so their state spaces combine as a Cartesian product — which is why each
+  additional neuron _multiplies_ the total state space.
+]
 
-The `ModelConfig` determines the per-neuron state complexity:
+== Model Configuration <sec-config>
+
+CogSpike's `ModelConfig` determines the per-neuron state complexity. Throughout
+this note we use three named *configuration presets* that represent increasing
+levels of biological fidelity:
+
+#figure(
+  table(
+    columns: 5,
+    stroke: 0.5pt,
+    [*Preset*], [*Thresholds ($k$)*], [*ARP*], [*RRP*], [*Description*],
+    [*Deterministic*],
+    [1],
+    [Off],
+    [Off],
+    [Binary firing: neuron fires with probability 1 if $p >= T$. No stochasticity, no refractory periods. Yields the smallest possible state space.],
+
+    [*Fast*],
+    [4],
+    [Off],
+    [Off],
+    [Default. Four probabilistic threshold levels (25% granularity). No refractory periods. Balanced between expressiveness and tractability.],
+
+    [*Full*],
+    [10],
+    [On (ARP=2)],
+    [On (RRP=4)],
+    [Biologically accurate. Ten threshold levels (10% granularity) with full refractory state machine (Normal → ARP → RRP → Normal). Largest state space.],
+  ),
+  caption: "The three configuration presets used in our experiments.",
+) <tab-presets>
+
+#intuition[
+  The preset choice controls two independent dimensions of state complexity:
+  (1) the number of _threshold levels_ $k$ determines how many distinct firing
+  probabilities exist (affecting transition fan-out but not state count), and
+  (2) whether _refractory periods_ are enabled adds extra state variables per
+  neuron ($s_n$, $"aref"_n$, $"rref"_n$), multiplying the per-neuron state space by
+  up to $3 times 3 times 5 = 45$. The potential range $R_n$ dominates in all cases.
+]
+
+The full list of parameters and their state space impact:
 
 #figure(
   table(
     columns: 3,
     stroke: 0.5pt,
     [*Parameter*], [*Notation*], [*Effect on State Space*],
-    [Threshold levels], [$k in {1, ..., 10}$], [Determines transition fan-out],
-    [Enable ARP], [$"arp" in {"on", "off"}$], [Adds $s_n$ and $"aref"_n$ variables],
-    [Enable RRP], [$"rrp" in {"on", "off"}$], [Adds $"rref"_n$ variable],
-    [Potential range], [$(P_"min", P_"max")$], [Dominates state count per neuron],
+    [Threshold levels], [$k in {1, ..., 10}$], [Determines transition fan-out (probabilistic branching)],
+    [Enable ARP],
+    [$"arp" in {"on", "off"}$],
+    [Adds refractory state $s_n in {0,1,2}$ and counter $"aref"_n in [0, "ARP"]$],
+
+    [Enable RRP], [$"rrp" in {"on", "off"}$], [Adds counter $"rref"_n in [0, "RRP"]$],
+    [Potential range], [$(P_"min", P_"max")$], [Dominates per-neuron state count],
     [Weight levels (disc.)], [$W in {1, ..., 10}$], [Determines $delta_W$ domain $[-W, W]$ and $T_d$; see @weight-disc],
   ),
   caption: "Model configuration parameters and their state space impact.",
@@ -202,6 +262,13 @@ The `ModelConfig` determines the per-neuron state complexity:
   We call this the *local state space* of module $M$.
 ]
 
+#intuition[
+  Each module has a fixed set of integer variables, each with a finite range.
+  The local state space is simply the count of all possible combinations of values
+  those variables can take. For example, a neuron with spike $y in {0,1}$ and
+  potential $p in [0, 120]$ has $2 times 121 = 242$ local states.
+]
+
 For each module type:
 
 *GlobalClock* (present when input patterns are time-dependent):
@@ -210,22 +277,34 @@ $ |S_"clock"| = T_"max" + 1 $
 *Inputs* (one module aggregating all input neurons):
 $ |S_"inputs"| = 2^(|V_"in"|) $
 
-*Neuron module* $M_n$ for $n in V_"proc"$ (precise model):
+*Neuron module* $M_n$ for $n in V_"proc"$ (precise model, fast config):
+
+The fast configuration ($k = 4$, no ARP/RRP) yields two state variables per neuron:
+spike output $y_n in {0, 1}$ and membrane potential $p_n in [P_"min", P_"max"]$:
+
+$ |S_n^"fast"| = underbrace(2, y_n) dot.c underbrace(R_n, p_n) = 2 R_n $
+
+where $R_n = P_("max",n) - P_("min",n) + 1$ is the per-neuron potential range.
+
+*Neuron module* $M_n$ (precise model, full config):
+
+The full configuration ($k = 10$, ARP=2, RRP=4) adds refractory state variables:
+
 $
-  |S_n^"precise"| = cases(
-    2 dot.c (P_"max" - P_"min" + 1) & "if" "arp" = "off" and "rrp" = "off" quad "(fast)",
-    (1 + delta_"arp") dot.c (1 + "ARP")^(delta_"arp") dot.c (1 + delta_"rrp") dot.c (1 + "RRP")^(delta_"rrp") dot.c 2 dot.c R_n & "otherwise (full)"
-  )
+  |S_n^"full"| = underbrace(3, s_n) dot.c underbrace(3, "aref"_n) dot.c underbrace(5, "rref"_n) dot.c underbrace(2, y_n) dot.c underbrace(R_n, p_n) = 90 dot.c R_n
 $
 
-where $R_n = P_("max",n) - P_("min",n) + 1$ is the per-neuron potential range, and
-$delta_"arp", delta_"rrp" in {0, 1}$ indicate whether ARP/RRP are enabled.
+where:
+- $s_n in {0, 1, 2}$ (Normal, ARP, RRP) → 3 values
+- $"aref"_n in {0, 1, 2}$ (ARP countdown) → 3 values
+- $"rref"_n in {0, 1, 2, 3, 4}$ (RRP countdown) → 5 values
 
-For the *fast* configuration ($k = 4$, no ARP/RRP):
-$ |S_n^"fast"| = 2 dot.c R_n $
-
-For the *full* configuration ($k = 10$, ARP + RRP with ARP=2, RRP=4):
-$ |S_n^"full"| = 3 dot.c 3 dot.c 5 dot.c 2 dot.c R_n = 90 dot.c R_n $
+#intuition[
+  The refractory state machine alone contributes a $3 times 3 times 5 = 45 times$
+  multiplicative overhead compared to the fast configuration. This is why the full
+  model's state space is roughly 45× larger than the fast model's for the same
+  topology, _before_ considering that the potential range may also differ.
+]
 
 *Neuron module* $M_n$ (discretized quotient model with weight level $W$):
 $ |S_n^"disc"| = 2 dot.c (P_("max",n)^d + 1) $
@@ -252,10 +331,30 @@ $ |S_(i,j)| = 2 $
 ]
 
 #proof[
-  Each module's variables are disjoint and updated only within that module (or via
-  synchronized formulas). Since PRISM constructs the global state as a tuple of
-  all variable valuations, the total state space is the Cartesian product of the
-  local state spaces.
+  #proofstep(1, "Module independence")[
+    PRISM's module system ensures each module $M$ has its own set of local
+    variables, disjoint from all other modules. Modules interact only through
+    _synchronized labels_ (in CogSpike, the `tick` label).
+  ]
+
+  #proofstep(2, "Global state as tuple")[
+    PRISM constructs each global state as the tuple of all variable valuations
+    across all modules: $(v_1, v_2, ..., v_m)$ where $v_i$ is the value assignment
+    of module $i$.
+  ]
+
+  #proofstep(3, "Cartesian product")[
+    Since each module's variables are independent and range over their full
+    domains, the set of all possible tuples is the Cartesian product of the
+    individual module state spaces.
+  ]
+]
+
+#intuition[
+  The product structure is the root cause of exponential scaling. Each new module
+  _multiplies_ (not adds) the total state space. A chain of $N$ neurons with $R$
+  potential values each gives $R^N$ — exponential in $N$. This is fundamentally
+  why SNN verification becomes intractable for larger networks.
 ]
 
 #definition[
@@ -285,7 +384,12 @@ This topology has:
 
 For the *fast precise* model with $P_"rth" = 100$ and weight $w = 80$:
 - Fan-in of each neuron is 1, so $R_n = P_"max" - P_"min" + 1$
-- Per-neuron narrowing gives $P_"max" = max(P_"rth", 3w"/"2) = max(100, 120) = 120$
+- CogSpike applies a _per-neuron potential bounding_ heuristic: the maximum
+  potential is capped at $P_"max" = max(P_"rth", 3/2 dot.c W_"exc")$, where
+  $W_"exc"$ is the sum of excitatory incoming weights. The factor $3"/"2$ provides
+  headroom above the maximum single-step contribution to account for potential
+  accumulation across multiple steps before leak brings it back down. With
+  $W_"exc" = 80$: $P_"max" = max(100, 120) = 120$.
 - No inhibitory synapses, so $P_"min" = 0$
 - Therefore $R_n = 121$ for each neuron
 
@@ -309,11 +413,53 @@ $ |S_"theory"^("chain,disc")| = 21 dot.c 2 dot.c 14^N dot.c 2^(N-1) = 21 dot.c 2
 = Empirical Validation <sec-empirical>
 
 We generated 63 PRISM models across 7 topologies, 3 model configurations
-(deterministic, fast, full), and 3 model types (precise, discretized $W$=2,
-discretized $W$=3). PRISM 4.9 was used to build each model and export the
-reachable state space via `-exporttrans` and `-exportstates`.
+(deterministic, fast, full; see @sec-config), and 3 model types (precise,
+discretized $W$=2, discretized $W$=3). PRISM 4.9 was used to build each model
+and export the reachable state space via `-exporttrans` and `-exportstates`.
+
+== Experimental Topologies
+
+The following seven canonical topologies were chosen to isolate the effects of
+chain length, fan-out, fan-in, and combined connectivity:
+
+#figure(
+  ```
+  Single:       In ──► N1
+
+  Chain-2:      In ──► N1 ──► N2
+
+  Chain-3:      In ──► N1 ──► N2 ──► N3
+
+  Chain-4:      In ──► N1 ──► N2 ──► N3 ──► N4
+
+  Fork:         In ──► N1 ──┬──► N2
+                            └──► N3
+
+  Diamond:      In ──► N1 ──┬──► N2 ──┬──► N4
+                            └──► N3 ──┘
+
+  Convergent:   In1 ──┬──► N1
+                In2 ──┘
+  ```,
+  caption: [The seven canonical topologies. All edges have excitatory weight $w = 80$
+    except where noted. Arrows indicate directed synaptic connections.],
+) <fig-topologies>
+
+#intuition[
+  These topologies are chosen to separate three effects:
+  (1) *Chain length* (Single → Chain-4): pure effect of adding neurons in series.
+  (2) *Fan-out* (Fork): one neuron drives two downstream targets, doubling the module count.
+  (3) *Fan-in* (Convergent, Diamond): multiple inputs converge on one neuron,
+  increasing its potential range without adding modules.
+  The Diamond combines fan-out and fan-in, making it the most demanding topology.
+]
 
 == Results Summary
+
+The most striking pattern in @tab-states is the _exponential growth_ across rows
+in the Precise (Full) column: from 18 states for a single neuron to 362,289 for
+a 4-neuron chain — nearly 20,000×. Meanwhile, the Disc. W=3 column remains
+remarkably stable, growing only from 6 to 88 across the same range.
 
 #figure(
   table(
@@ -361,9 +507,21 @@ The per-neuron multiplicative factor is:
 $ r_"fast" approx 23/6 approx 3.8, quad 275/23 approx 12.0, quad 6917/275 approx 25.2 $
 
 This acceleration occurs because each additional neuron's _reachable_ potential range
-grows with the cumulative input. The first neuron sees only input $x in {0,1}$ weighted
-by 80, giving potential values ${0, 80, 120}$ (with leak). Subsequent neurons see richer
-input distributions.
+grows with the cumulative input. The first neuron sees only the binary input $x in {0,1}$
+scaled by weight 80, giving a few distinct potential values. But downstream neurons
+receive _richer input distributions_: their presynaptic neuron can output spikes at
+different times, and each firing pattern leaves the downstream neuron at a different
+potential. This means each successive neuron explores a larger fraction of its
+theoretical potential range.
+
+#intuition[
+  The growth ratio is _not_ constant because the theoretical formula ($484^N$)
+  overestimates by assuming all potential values are reachable. In practice, the
+  first neuron only reaches a handful of potentials (density $rho$ is very low),
+  so adding the second neuron has a small multiplicative effect. As the chain
+  grows, the input signal becomes richer and $rho$ increases, so the ratio
+  approaches the theoretical maximum of $484$ per neuron from below.
+]
 
 For the *precise full* model:
 $ 18 -> 246 -> 13,180 -> 362,289 $
@@ -424,18 +582,30 @@ Comparing fork (fan-out) and convergent (fan-in) topologies:
 
 == PRISM Memory Architecture
 
-PRISM uses BDDs (Binary Decision Diagrams) or MTBDDs for symbolic model representation.
-The memory consumed depends on:
+PRISM offers two storage engines for the DTMC transition matrix:
 
-+ *BDD node count*: Proportional to (a compressed representation of) the state space
-+ *Transition matrix storage*: Sparse encoding of $|T|$ transitions
-+ *Java heap overhead*: JVM object headers, hash tables, etc.
+- The *explicit engine* stores every reachable state and transition as individual
+  data structures in Java heap memory.
+- The *symbolic (BDD) engine* uses Binary Decision Diagrams to represent the
+  transition matrix compactly. BDDs exploit regularity in the state space to share
+  common sub-structures, but their memory efficiency depends critically on
+  _variable ordering_ — the order in which PRISM's variables are laid out in the
+  BDD. Poor orderings can cause exponential blowup.
 
 For the explicit engine, memory scales roughly as:
 $ M_"explicit" approx |S_"reachable"| dot.c c_s + |T| dot.c c_t $
 
-where $c_s approx 40$ bytes per state (index, variable values, hash) and
-$c_t approx 24$ bytes per transition (source, destination, probability).
+where $c_s approx 40$ bytes per state (state index, variable values array,
+hash table entry) and $c_t approx 24$ bytes per transition (source index,
+destination index, probability as IEEE 754 double). These constants are derived
+from PRISM's `explicit.StateStorage` and `sparse.DTMCSimple` internal
+representations.
+
+#example[
+  *Chain-3, fast precise:* 275 states, 569 transitions.
+  $ M approx 275 times 40 + 569 times 24 = 11,000 + 13,656 = 24,656 "bytes" approx 24 "KB" $
+  This is trivially within PRISM's default 1 GB Java heap.
+]
 
 == Empirical Memory Estimates
 
@@ -454,14 +624,33 @@ Using the explicit model estimates with $c_s = 40, c_t = 24$ bytes:
   caption: "Memory estimates for selected models.",
 ) <tab-memory>
 
+#intuition[
+  The memory estimates above assume the explicit engine. Even the largest
+  successful model (chain-4 full precise, ~35.7 MB) is well within a 1 GB heap.
+  The OOM failure for the diamond model occurred in the BDD engine (CUDD),
+  which has a separate and usually smaller memory budget. This is a crucial
+  distinction addressed in the next section.
+]
+
+== BDD Engine and CUDD Memory Limits <sec-cudd>
+
+The diamond-full-precise model's failure reveals a subtle but critical bottleneck:
+it was not Java heap that ran out, but CUDD's _internal_ BDD memory.
+
+CUDD (Colorado University Decision Diagram package) manages its own memory pool
+separate from the JVM heap. Its default limit is typically 1 GB, compared to
+PRISM's default 1 GB Java heap. The key difference is that BDD memory consumption
+depends not on $|S_"reachable"|$ directly, but on the _BDD width_ — which is
+determined by the variable ordering.
+
 #remark[
-  The diamond-full-precise model failed not on Java heap but on CUDD internal
-  BDD memory. CUDD's default memory limit is lower than the Java heap (typically
-  1 GB). This suggests that the BDD representation of the diamond topology is
-  particularly unfriendly to BDD ordering heuristics — the crossing paths between
-  N2→N4 and N3→N4 create variable interdependencies that resist BDD compression.
-  The `-cuddmaxmem` flag can increase this limit, but the underlying exponential
-  scaling remains.
+  The diamond topology is particularly BDD-unfriendly. The two parallel paths
+  N1→N2→N4 and N1→N3→N4 create _crossing variable dependencies_: the
+  convergent neuron N4's potential depends on both N2 and N3's spike histories,
+  which are themselves independent. This forces the BDD to represent their
+  joint distribution, which resists the compression that BDDs excel at for
+  tree-like dependency structures. The `-cuddmaxmem` flag can increase the
+  CUDD memory limit, but the underlying exponential scaling remains.
 ]
 
 == Predictive Formula
@@ -493,6 +682,24 @@ $ hat(M)(G, C) = hat(S)(G, C) dot.c (c_s + bar(d) dot.c c_t) $
 
 where $bar(d)$ is the average out-degree of the DTMC (typically $approx 2$--$3$ for
 CogSpike models due to probabilistic branching at threshold levels).
+
+#example[
+  *Worked example: chain-3, fast precise.*
+
+  Parameters: $T_"max" = 20$, $|V_"in"| = 1$, $|V_"proc"| = 3$, $|E_"int"| = 2$,
+  $P_"rth" = 100$, $w = 80$.
+
+  Per-neuron: $R_n = max(100, 3/2 dot.c 80) + 1 = 121$, so $f_n = 2 times 121 = 242$.
+
+  $ hat(S) = 21 dot.c 2^1 dot.c 242^3 dot.c 2^2 = 21 dot.c 2 dot.c 14,172,888 dot.c 4 = 2,381,285,184 $
+
+  With $bar(d) = 2$: $hat(M) approx 2.38 times 10^9 times (40 + 2 times 24) approx 210 "GB"$.
+
+  The _actual_ reachable state space is only 275 (from @tab-states), giving
+  $rho = 275 / 2.38 times 10^9 approx 1.2 times 10^(-7)$. The predictor is
+  extremely conservative, but that is by design: it guarantees the actual
+  memory will never _exceed_ the prediction.
+]
 
 = Impact of Weight Discretization on Scaling <sec-disc>
 
@@ -597,4 +804,4 @@ Based on our empirical data and the 2 GB CUDD default limit:
   using the cheaper configurations to establish baseline properties before investing
   in the exponentially more expensive full verification.
 
-#bibliography("references.bib")
+#bibliography("references.bib", style: "ieee")
