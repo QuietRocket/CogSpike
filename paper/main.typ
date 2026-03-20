@@ -22,29 +22,35 @@
   authors: (
     author("Anonymous submission", insts: (inst-anon,)),
   ),
+  running-title: "Formal Verification of SNNs via Weight-Discretized Quotient Abstractions",
   running-authors: "Anonymous",
   abstract: [
-    Spiking Neural Networks (SNNs) more closely model biological neural
-    dynamics than classical artificial networks, offering energy-efficient
-    computation but pose severe challenges for formal verification due to state
-    space explosion. Existing quotient model abstractions reduce the state space
-    by partitioning membrane potentials into equivalence classes, but discard
-    synaptic weight information, limiting the properties that can be verified.
-    This paper introduces a _weight-discretized quotient model abstraction_ that
-    maps continuous synaptic weights to a compact integer range while preserving
-    the relative contribution of each synapse. The discretization is accompanied
-    by formal correctness guarantees: a Threshold Preservation theorem
-    (completeness) ensures that no fireable configurations are lost, and an
-    Asymptotic Silence theorem (soundness) guarantees that no spurious spikes are
-    introduced. The core biological properties of Leaky Integrate-and-Fire
-    neurons---tonic spiking, integrator behaviour, and excitability---are
-    provably maintained. A topology-dependent scaling analysis derives
-    closed-form state space formulas and shows that the reduction compounds
-    exponentially across neurons: approximately 17$times$ per neuron for a
-    discretization parameter $W = 3$. Empirical validation across seven
-    canonical topologies in the PRISM model checker confirms the theoretical
-    predictions, enabling verification of networks that are otherwise
-    intractable.
+    Spiking Neural Networks (SNNs) model biological neural dynamics more
+    faithfully than classical artificial networks, but their stochastic,
+    event-driven computation---rooted in ion-channel noise and unreliable
+    synaptic vesicle release---demands probabilistic models for which
+    deterministic abstractions are mathematically inadequate. Formal
+    verification of such models via probabilistic model checking faces a
+    fundamental barrier: the _state space explosion problem_, where the
+    Discrete-Time Markov Chain (DTMC) encoding grows exponentially with the
+    number of neurons. General-purpose quotient model
+    abstractions @BaierKatoen2008 can in principle mitigate this growth by
+    partitioning membrane potentials into equivalence classes, but a naïve
+    application to SNNs discards synaptic weight information, limiting the
+    properties that can be verified. This paper introduces a _weight-discretized quotient model
+    abstraction_ that maps continuous synaptic weights to a compact integer
+    range while preserving the relative contribution of each synapse, and
+    presents CogSpike, a unified workbench that integrates SNN design,
+    simulation, and PRISM-based formal verification within a single
+    isomorphic tool chain. The discretization is accompanied by formal
+    correctness guarantees: a Threshold Preservation theorem (completeness)
+    ensures that no fireable configurations are lost, and an Asymptotic
+    Silence theorem (soundness) guarantees that no spurious spikes are
+    introduced. A topology-dependent scaling analysis shows that the state
+    space reduction compounds exponentially---approximately 17$times$ per
+    neuron for discretization parameter $W = 3$---enabling verification of
+    networks that are otherwise intractable, as confirmed empirically across
+    seven canonical topologies.
   ],
   keywords: (
     "Spiking Neural Networks",
@@ -54,11 +60,6 @@
     "Quotient Abstraction",
     "Weight Discretization",
   ),
-  // No acknowledgments in double-blind submission
-  disclosure: [
-    The authors have no competing interests to declare that are relevant to
-    the content of this article.
-  ],
   bib: bibliography("refs.bib"),
 )
 
@@ -71,37 +72,34 @@
 // ─── 1. Introduction (~1 page) ──────────────────────────────────────────────
 = Introduction <sec-intro>
 
-The evolution of artificial neural networks is conventionally classified into
-three generations @maass1997networks. The first generation, epitomized by
-McCulloch--Pitts threshold gates, employed binary inputs and outputs and was
-limited to linearly separable problems. The second generation introduced
-continuous activation functions and gradient-based optimization via
-backpropagation, enabling deep learning architectures that have achieved
-remarkable success in pattern recognition and sequence modelling. Yet these
-networks lack the temporal dynamics and energy efficiency of biological neural
-circuits.
+Spiking Neural Networks (SNNs)---the third generation of artificial neural
+networks @maass1997networks ---communicate via discrete, asynchronous spikes
+whose precise timing encodes information alongside aggregate firing rates.
+This event-driven paradigm models biological neural dynamics more faithfully
+than rate-coded deep networks and offers substantial energy advantages on
+neuromorphic hardware such as Intel's Loihi @davies2018loihi and the
+SpiNNaker architecture @furber2014spinnaker. Among SNN neuron models, the
+Leaky Integrate-and-Fire (LIF) formulation @hodgkin1952quantitative provides analytical tractability,
+while richer models such as Izhikevich neurons @izhikevich2003simple
+reproduce a wider repertoire of biological firing patterns at higher
+computational cost.
 
-The third generation---Spiking Neural Networks (SNNs)---bridges the gap between
-machine learning and computational neuroscience. SNNs employ biologically
-plausible neurons communicating via discrete, asynchronous spikes, where the
-precise timing of each spike conveys information alongside the aggregate firing
-rate @maass1997networks. This event-driven computation offers substantial power
-advantages, making SNNs suitable for neuromorphic hardware @nguyen2021review.
-However, the non-differentiable Heaviside activation function precludes standard
-gradient-based optimization, and the stochastic, temporal nature of spike-based
-computation makes formal verification of correctness significantly harder than
-for traditional networks. As SNNs are increasingly targeted for safety-critical
-applications, formal methods providing mathematical guarantees of functional
-correctness become essential.
+Biological neurons are inherently stochastic: ion-channel noise, unreliable
+synaptic vesicle release, and variable axonal delays introduce randomness at
+every stage of signal transmission @hodgkin1952quantitative @nguyen2021review.
+Probabilistic models are therefore mathematically necessary to faithfully
+capture these dynamics. The standard approach to formal SNN verification
+translates the network into a Discrete-Time Markov Chain (DTMC) and verifies
+behavioural properties expressed in Probabilistic Computation Tree Logic
+(PCTL) using a model checker such as PRISM @PRISM2011. However, this approach
+faces a fundamental barrier: the _state space explosion problem_. The DTMC
+state space grows exponentially with the number of neurons, rendering
+verification intractable beyond a handful of neurons. General-purpose quotient
+model abstractions @BaierKatoen2008 can in principle reduce DTMCs by
+partitioning states into equivalence classes, but a naïve application to SNNs
+treat all synapses uniformly, discarding weight information.
 
-This paper presents a novel probabilistic verification framework for
-spiking neural networks: a _weight-discretized quotient model abstraction_ for the
-formal verification of SNNs via probabilistic model checking. The approach
-extends the filtration-based quotient model of Baier and
-Katoen @BaierKatoen2008 to preserve synaptic weight information during
-abstraction, enabling verification in the PRISM model
-checker @PRISM2011 with drastically reduced state spaces. The contributions
-are threefold:
+This paper addresses both limitations. The contributions are fourfold:
 
 + A *weight discretization scheme* that maps continuous synaptic weights to a
   finite discrete range while preserving threshold feasibility and relative
@@ -115,6 +113,10 @@ are threefold:
 + A *topology-dependent state space analysis* with closed-form formulas for
   DTMC size as a function of network structure, validated empirically across
   seven canonical topologies (@sec-scaling).
+
++ *CogSpike*, a unified workbench integrating SNN design, simulation,
+  and PRISM-based formal verification, using strict isomorphism between its
+  simulation engine and PRISM model generator (@sec-cogspike).
 
 
 // ─── 2. Related Work (~1 page) ──────────────────────────────────────────────
@@ -140,17 +142,12 @@ approach translates SNN topologies into Discrete-Time Markov Chains (DTMCs) and
 specifies behavioural properties using Probabilistic Computation Tree Logic
 (PCTL), enabling rigorous assume/guarantee contracts.
 
-These approaches establish the feasibility of formal SNN verification but share
-a common limitation: the _state space explosion problem_. As network size
-grows, the DTMC state space grows exponentially in the number of neurons, and
-existing quotient model abstractions @BaierKatoen2008 lose synaptic weight
-information during reduction. The present work addresses both limitations.
-
-The present work addresses these limitations by introducing a
-weight-discretized quotient model abstraction that preserves synaptic
-weight information while drastically reducing the state space, and by
-providing a unified tool---CogSpike---that integrates both simulation
-and formal verification within a single workbench.
+These approaches establish the feasibility of formal SNN verification but
+share a common limitation: the _state space explosion problem_. As network
+size grows, the DTMC state space grows exponentially, and general-purpose
+quotient abstractions @BaierKatoen2008 would lose synaptic weight information
+if applied naïvely. Moreover, no existing tool unifies SNN simulation and
+formal verification. The present work addresses all three limitations.
 
 
 // ─── 3. Preliminaries (~1.5 pages) ──────────────────────────────────────────
@@ -209,21 +206,24 @@ whose efficiency depends on variable ordering.
 == Quotient Model Abstraction <sec-quotient>
 
 Quotient model abstraction @BaierKatoen2008 @Katoen2016 reduces the DTMC state
-space by partitioning states into equivalence classes. The filtration-based
-approach maps continuous membrane potentials to a finite class set, preserving
-probabilistic branching structure. However, the standard filtration treats all
-synapses uniformly, collapsing weight information: it cannot distinguish strong
-excitatory from weak excitatory or inhibitory contributions. The weight
-discretization scheme presented in @sec-weight-disc addresses this limitation.
+space by partitioning _probabilistically bisimilar_ states---those yielding
+identical firing probabilities and, under every input, transitioning to
+equivalent successor classes---into equivalence classes. The resulting quotient
+is the coarsest PCTL-preserving partition, reducing the per-neuron state
+space from $|P_"max" - P_"min" + 1|$ values to $k + 1$ classes (where $k$ is
+the number of threshold levels). However, a naïve application to SNNs treats
+all synapses uniformly, collapsing weight information: it cannot distinguish
+strong excitatory from weak excitatory or inhibitory contributions. The weight
+discretization scheme in @sec-weight-disc addresses this limitation.
 
 
 // ─── 4. Weight-Discretized Quotient Abstraction (~2.5 pages) ────────────────
 = Weight-Discretized Quotient Abstraction <sec-weight-disc>
 
-The standard filtration-based quotient model abstracts membrane potentials into
-equivalence classes but treats all synapses uniformly, discarding weight
-information. This section introduces a _weight discretization scheme_ that
-preserves the relative contribution of each synapse.
+The quotient model of @sec-quotient abstracts membrane potentials into
+equivalence classes but treats all synapses uniformly. This section introduces
+a _weight discretization scheme_ that resolves this limitation while
+preserving the relative contribution of each synapse.
 
 == Weight Discretization Function <sec-disc-function>
 
@@ -297,24 +297,23 @@ extended appendix.
 
 #proof[
   Let $bold(y)^*$ be a firing input pattern with weighted sum
-  $S = sum w_i y_i^* >= T$. By the rounding bound,
-  $delta_W(w_i) >= w_i dot.c W \/ w_"max" - 1\/2$, so the discretized sum
-  satisfies:
-  $ S_d = sum delta_W(w_i) dot.c y_i^* >= S dot.c W \/ w_"max" - m^* \/ 2 $
-  where $m^* = sum y_i^* <= m$ is the number of active inputs. Since
-  $T_d = ceil(T dot.c W \/ w_"max") <= T dot.c W \/ w_"max" + 1$, the
-  sufficient condition for firing is
-  $(S - T) dot.c W \/ w_"max" >= m\/2 + 1$.
-  For $W >= w_"max" dot.c (m\/2 + 1) \/ T$, the condition is satisfied whenever
-  $S >= T$. With typical parameters ($W = 3$, $w_"max" = 100$, $m <= 10$,
-  $T = 100$), the bound requires $W >= 6$.
-]
-
-#remark[
-  The cumulative rounding error of $-m\/2$ implies that high fan-in neurons
-  require finer discretization. For neurons with $m > 2W$, the rounding noise
-  may exceed the smallest synaptic weight, and a threshold correction factor
-  $T'_d = T_d - floor(m \/ (2W))$ can optionally be applied.
+  $S = sum w_i y_i^* >= T$, and let $m^* = sum y_i^* <= m$ denote the number of
+  active inputs. By definition of rounding to the nearest integer,
+  $delta_W(w_i) = lr(⌊ w_i dot.c W \/ w_"max" ⌉)$ satisfies
+  $ delta_W(w_i) >= w_i dot.c W \/ w_"max" - 1\/2 $ <eq-rounding-lb>
+  Multiplying @eq-rounding-lb by $y_i^* in {0,1}$ and summing over all inputs:
+  $
+    S_d = sum_(i=1)^m delta_W(w_i) dot.c y_i^*
+    >= sum_(i=1)^m w_i y_i^* dot.c W \/ w_"max" - 1\/2 sum_(i=1)^m y_i^*
+    = S dot.c W \/ w_"max" - m^* \/ 2
+  $ <eq-sd-bound>
+  Each active input contributes at most $-1\/2$ of rounding error, yielding
+  a cumulative shortfall of $-m^*\/2$. Since
+  $T_d = ceil(T dot.c W \/ w_"max") <= T dot.c W \/ w_"max" + 1$,
+  the discretized neuron fires ($S_d >= T_d$) whenever:
+  $ (S - T) dot.c W \/ w_"max" >= m^* \/ 2 + 1 $
+  Since $S >= T$ by hypothesis and $m^* <= m$, this holds for
+  $W >= w_"max" dot.c (m\/2 + 1) \/ T$.
 ]
 
 === Asymptotic Silence (Soundness) <sec-soundness>
@@ -361,8 +360,7 @@ Brian~2 @stimberg2019brian2, NEST @gewaltig2007nest ---provide rich environments
 for designing and simulating spiking neural networks but lack integrated
 support for _formal verification_. Conversely, probabilistic model checkers
 such as PRISM @PRISM2011 operate on abstract models that must be constructed
-and maintained separately from the simulation code, creating an isomorphism
-gap between the system under study and its formal representation.
+and maintained separately from the simulation code.
 
 CogSpike bridges this gap by unifying SNN _design_, _simulation_, and
 _verification_ in a single desktop workbench. The tool is implemented in
@@ -408,9 +406,11 @@ without manually constructing PRISM models.
 // ─── 6. Topology-Dependent Scaling Limits (~2 pages) ─────────────────────────
 = Topology-Dependent Scaling Limits <sec-scaling>
 
-To characterize the practical limits of SNN verification, this section derives
-closed-form formulas for the DTMC state space as a function of network
-topology and model configuration.
+The weight-discretized quotient abstraction promises exponential state space
+reduction; this section quantifies that promise. We derive closed-form
+formulas for the DTMC state space as a function of network topology and model
+configuration, and validate them empirically to identify the practical
+limits of PRISM-based SNN verification.
 
 == PRISM Module Decomposition <sec-modules>
 
@@ -446,7 +446,7 @@ is $242 \/ 14 approx 17.3 times$.
   exponentially:
   $ frac(|S^"precise"|, |S^"disc"|) = product_(n=1)^N frac(R_n, P_("max",n)^d + 1) approx 17.3^N $
   The factor $17.3$ is the per-neuron reduction ratio $242 slash 14$ from the
-  chain example above. For $N = 4$: $17.3^4 approx 89{,}500 times$.
+  chain example above. For $N = 4$: $17.3^4 approx 89,500 times$.
 ]
 
 == Empirical Validation <sec-results>
@@ -515,13 +515,15 @@ summarizes the estimated maximum verifiable network sizes.
 // ─── 7. Conclusion (~0.5 page) ──────────────────────────────────────────────
 = Conclusion <sec-conclusion>
 
-This paper presented a weight-discretized quotient model abstraction for the
-formal verification of spiking neural networks. The discretization function
-$delta_W$ maps continuous synaptic weights to a compact integer range while
-preserving threshold feasibility (Theorem~1) and preventing spurious spikes
-(Theorem~2). The core biological properties of LIF neurons---tonic spiking,
-integrator behaviour, and excitability @naco20 --- are maintained by the
-threshold-dependent leak factor $lambda_d$.
+Formal verification of spiking neural networks requires balancing the
+biological fidelity of probabilistic models against the compact state spaces
+demanded by model checking. This paper presented a weight-discretized
+quotient model abstraction that resolves this tension.
+The discretization function $delta_W$ maps continuous synaptic weights to a
+compact integer range while preserving threshold feasibility (Theorem~1) and
+preventing spurious spikes (Theorem~2). The core biological properties of LIF
+neurons---tonic spiking, integrator behaviour, and excitability @naco20 ---are
+maintained by the threshold-dependent leak factor $lambda_d$.
 
 The topology-dependent scaling analysis demonstrates that the state space
 reduction compounds exponentially across neurons: approximately $17 times$ per
