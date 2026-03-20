@@ -5,10 +5,10 @@
 // Constraint: max 12 pages INCLUDING references
 //
 // Page budget (12 pages):
-//   Title + Abstract (0.5p) + Intro (1p) + Related Work (1p) + Prelim (1.5p)
-//   = 4p background
-//   Weight-Disc Quotient Abstraction (2.5p) + Scaling Limits (2.5p) + Conclusion (0.5p)
-//   = 5.5p contributions
+//   Title + Abstract (0.5p) + Intro (1p) + Related Work (0.5p) + Prelim (1.5p)
+//   = 3.5p background
+//   Weight-Disc Quotient Abstraction (2.5p) + CogSpike (0.75p) + Scaling (2p) + Conclusion (0.5p)
+//   = 5.75p contributions
 //   References (~1p)
 
 #import "Typst/llncs.typ": *
@@ -18,13 +18,14 @@
 
 // ── Apply template ───────────────────────────────────────────────────────────
 #show: lncs.with(
-  title: "Formal Verification of Spiking Neural Networks via Weight-Discretized Quotient Abstractions",
+  title: "A tool for Formal Verification of Spiking Neural Networks via Weight-Discretized Quotient Abstractions",
   authors: (
     author("Anonymous submission", insts: (inst-anon,)),
   ),
   running-authors: "Anonymous",
   abstract: [
-    Spiking Neural Networks (SNNs) offer biologically plausible, energy-efficient
+    Spiking Neural Networks (SNNs) more closely model biological neural
+    dynamics than classical artificial networks, offering energy-efficient
     computation but pose severe challenges for formal verification due to state
     space explosion. Existing quotient model abstractions reduce the state space
     by partitioning membrane potentials into equivalence classes, but discard
@@ -93,7 +94,8 @@ for traditional networks. As SNNs are increasingly targeted for safety-critical
 applications, formal methods providing mathematical guarantees of functional
 correctness become essential.
 
-This paper presents a _weight-discretized quotient model abstraction_ for the
+This paper presents a novel probabilistic verification framework for
+spiking neural networks: a _weight-discretized quotient model abstraction_ for the
 formal verification of SNNs via probabilistic model checking. The approach
 extends the filtration-based quotient model of Baier and
 Katoen @BaierKatoen2008 to preserve synaptic weight information during
@@ -144,26 +146,11 @@ grows, the DTMC state space grows exponentially in the number of neurons, and
 existing quotient model abstractions @BaierKatoen2008 lose synaptic weight
 information during reduction. The present work addresses both limitations.
 
-== Learning Algorithms for SNNs <sec-related-learning>
-
-Parameter learning in SNNs has motivated diverse approaches. Spike-Timing-Dependent
-Plasticity (STDP), combined with winner-takes-all lateral inhibition and
-adaptive thresholds, achieves competitive unsupervised
-accuracy @diehl2015unsupervised. Competitive learning frameworks using global
-inhibition and anti-Hebbian dynamics replace non-local backpropagation with
-biologically plausible mechanisms @krotov2019unsupervised. Self-Organizing Maps
-adapted to the spiking domain use distance-dependent lateral inhibition to
-create topographically ordered feature
-maps @hazan2018unsupervised @rumbell2014spiking. For supervised learning at
-scale, surrogate gradient methods substitute smooth proxy derivatives for the
-spike function during backpropagation through
-time @neftci2019surrogate, while three-factor learning rules with eligibility
-traces enable online, hardware-compatible
-training @bellec2019eligibility.
-
-The present work is complementary to these learning approaches: rather than
-optimizing SNN parameters, it provides formal guarantees that a given SNN
-configuration satisfies specified temporal and probabilistic properties.
+The present work addresses these limitations by introducing a
+weight-discretized quotient model abstraction that preserves synaptic
+weight information while drastically reducing the state space, and by
+providing a unified tool---CogSpike---that integrates both simulation
+and formal verification within a single workbench.
 
 
 // ─── 3. Preliminaries (~1.5 pages) ──────────────────────────────────────────
@@ -171,26 +158,30 @@ configuration satisfies specified temporal and probabilistic properties.
 
 == Spiking Neural Network Model <sec-snn-model>
 
-An SNN is modelled as a directed graph $G = (V, E)$ where $V = V_"in" union
+An SNN is modelled as a directed graph $G = (V, E)$, where directed edges
+represent unidirectional synaptic connections and $V = V_"in" union
 V_"proc"$ partitions into input neurons and processing neurons, and $E
 subset.eq V times V$ represents directed synaptic connections with integer
 weights $w_e in [-100, 100]$.
 
 Each processing neuron $n in V_"proc"$ follows Leaky Integrate-and-Fire (LIF)
-dynamics @naco20 @hodgkin1952quantitative. At each discrete time step, the
-membrane potential integrates incoming weighted spikes and decays toward rest:
-$ p_(n, t+1) = max(0, (1 - ell) dot.c p_(n,t) + sum_(i in "In"(n)) w_(i,n) dot.c y_(i,t)) $ <eq-lif>
-where $ell in [0,1]$ is the leak factor. When $p_n >= P_"rth"$ (the firing
-threshold), neuron $n$ emits a spike ($y_n = 1$) and resets to zero.
+dynamics @naco20 @hodgkin1952quantitative. Let $ell in [0,1]$ be the leak
+factor and $P_"rth"$ be the firing threshold. At each discrete time step $t$,
+the membrane potential integrates incoming weighted spikes and decays toward
+rest:
+$ p_n (t+1) = max(0, (1 - ell) dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c y_i (t)) $ <eq-lif>
+where $y_i (t)$ is the spike event of presynaptic neuron $i$ at time $t$.
+When $p_n (t+1) >= P_"rth"$, neuron $n$ emits a spike ($y_n (t+1) = 1$) and
+resets to zero.
 
-Firing is _probabilistic_: the potential maps to a discrete threshold level
+Firing is _probabilistic_: the potential maps to a discrete integer threshold level
 $L in {0, ..., N-1}$ where $N$ is configurable (1--10), and each level yields
 a firing probability. Optionally, neurons implement a three-state refractory
 machine: Normal ($s = 0$), Absolute Refractory Period (ARP, $s = 1$), and
 Relative Refractory Period (RRP, $s = 2$), with reduced firing probability
 during RRP scaled by factor $alpha$.
 
-== Probabilistic Model Checking <sec-model-checking>
+== Probabilistic Model Checking and Temporal Logics <sec-model-checking>
 
 #definition[
   A _Discrete-Time Markov Chain_ (DTMC) is a tuple $cal(D) = (S, s_0, bold(P))$
@@ -200,7 +191,8 @@ during RRP scaled by factor $alpha$.
   S$ @BaierKatoen2008.
 ]
 
-Behavioural properties are specified in Probabilistic Computation Tree Logic
+Behavioural properties to be verified are specified in Probabilistic
+Computation Tree Logic
 (PCTL), which extends branching-time temporal logic with probabilistic path
 quantifiers $P_(⋈ p) [phi]$. For instance,
 $P_(>= 1)[bold(F) (y_n = 1)]$ asserts that neuron $n$ fires with probability
@@ -239,7 +231,7 @@ preserves the relative contribution of each synapse.
   Given a weight range $[- w_"max", w_"max"]$ (typically $w_"max" = 100$) and a
   discretization parameter $W in NN^+$, the _weight discretization function_
   $delta_W : RR -> ZZ$ is:
-  $ delta_W (w) = lr(⌊ w dot.c W / w_"max" ⌉) $
+  $ delta_W (w) = op("round")(w dot.c W / w_"max") = lr(⌊ w dot.c W / w_"max" ⌉) $
   mapping original weights to the discrete range $[-W, W] subset ZZ$.
 ]
 
@@ -264,7 +256,7 @@ the fan-in.
   $ T_d = ceil(T dot.c W / w_"max") $
 ]
 
-The use of ceiling (rather than rounding) ensures $T_d >= T dot.c W \/ w_"max"$,
+The use of the ceiling function $op("ceil")$ (rather than rounding) ensures $T_d >= T dot.c W \/ w_"max"$,
 so the discretized neuron is _at least as hard_ to fire as the original. This
 conservative calibration prevents false-positive firings and is essential for
 the soundness guarantee established in @sec-soundness.
@@ -288,6 +280,10 @@ where $Delta(C_n) = op("clamp")(lr(⌊ C_n \/ gamma ⌉), -k, k)$ is the class
 delta function with class width $gamma = T_d \/ k$.
 
 == Formal Proofs <sec-proofs>
+
+This subsection presents the formal proofs of the key correctness
+properties. For complete derivations, the reader is referred to the
+extended appendix.
 
 === Threshold Preservation (Completeness) <sec-completeness>
 
@@ -357,7 +353,59 @@ et al.~@naco20:
   is a decreasing function of $C_"in"$.
 
 
-// ─── 5. Topology-Dependent Scaling Limits (~2.5 pages) ──────────────────────
+// ─── 5. The CogSpike Workbench (~0.75 pages) ────────────────────────────────
+= The CogSpike Workbench <sec-cogspike>
+
+Existing SNN simulation platforms---Nengo @bekolay2014nengo,
+Brian~2 @stimberg2019brian2, NEST @gewaltig2007nest ---provide rich environments
+for designing and simulating spiking neural networks but lack integrated
+support for _formal verification_. Conversely, probabilistic model checkers
+such as PRISM @PRISM2011 operate on abstract models that must be constructed
+and maintained separately from the simulation code, creating an isomorphism
+gap between the system under study and its formal representation.
+
+CogSpike bridges this gap by unifying SNN _design_, _simulation_, and
+_verification_ in a single desktop workbench. The tool is implemented in
+Rust with an immediate-mode GUI (egui), and its core design principle is
+*strict isomorphism*: the simulation engine and the PRISM model generator
+share the same mathematical model---the LIF dynamics of @eq-lif, the
+three-state refractory machine, and the probabilistic firing logic---so that
+verification results faithfully predict simulation behaviour.
+
+The workbench provides:
+
++ A *visual graph editor* for constructing SNN topologies as directed graphs
+  with configurable synaptic weights, input spike generators (periodic,
+  Poisson, burst, custom), and multi-generator combination modes (OR, AND,
+  XOR).
+
++ An *isomorphic simulation engine* that executes the LIF dynamics with
+  configurable model complexity: three presets---Deterministic (1 threshold
+  level, no refractory), Fast (4 levels, no refractory), and Full (10 levels,
+  ARP/RRP enabled)---allow trading biological fidelity for computational
+  tractability. Results are visualized via raster plots, membrane potential
+  traces, and aggregate firing statistics.
+
++ *Automated PRISM code generation* that translates the SNN graph into a
+  DTMC model. The generator supports both _precise_ and _weight-discretized
+  quotient_ abstraction modes (@sec-weight-disc), and synthesizes PCTL
+  properties for reachability, safety, and liveness verification.
+  Per-neuron potential bounds are computed from fan-in analysis to minimize
+  the state space.
+
++ A *verification bridge* that invokes the PRISM model checker as a
+  background process with configurable engine selection (explicit, sparse,
+  MTBDD), JVM memory limits, and solver options (Gauss--Seidel, topological
+  value iteration). Results are parsed and displayed inline alongside the
+  simulation output.
+
+Since model complexity presets (Deterministic, Fast, Full) are shared between
+simulation and verification, any configuration tested in simulation can be
+directly verified, enabling a rapid _design--simulate--verify_ workflow
+without manually constructing PRISM models.
+
+
+// ─── 6. Topology-Dependent Scaling Limits (~2 pages) ─────────────────────────
 = Topology-Dependent Scaling Limits <sec-scaling>
 
 To characterize the practical limits of SNN verification, this section derives
@@ -378,13 +426,13 @@ The PRISM model for an SNN $G = (V, E)$ consists of four module types:
   - _Discretized_ ($W = 3$):
     $|S_n^"disc"| = 2 dot.c (P_("max",n)^d + 1)$ where
     $P_("max",n)^d = T_d + E_n^d$.
-- *Transfer* $T_(i,j)$: 2 states per internal edge.
+- *Transfer* $T_(i,j)$: 2 states per internal edge (representing the intermediate state of a spike traveling along a synapse).
 
 #theorem[
   *(State Space Product).* The theoretical state space is the Cartesian product
   of all module state spaces:
   $ |S_"theory"| = (T_"max"+1) dot.c 2^(|V_"in"|) dot.c product_(n in V_"proc") f_n (C) dot.c 2^(|E_"int"|) $
-  where $f_n (C) = |S_n|$ depends on the model configuration $C$.
+  where $f_n (C) = |S_n|$ depends on the model configuration $C$. The $2^(|E_"int"|)$ factor accounts for the binary states of all internal transfer edges.
 ]
 
 For a chain of $N$ neurons with $P_"rth" = 100$ and weight $w = 80$: the
@@ -393,17 +441,19 @@ $f_n = 2 dot.c 7 = 14$ (discretized $W = 3$). The per-neuron reduction factor
 is $242 \/ 14 approx 17.3 times$.
 
 #theorem[
-  *(Exponential Reduction).* For a chain of $N$ neurons, the state space ratio
-  between precise and discretized models compounds exponentially:
-  $ |S^"precise"| / |S^"disc"| = product_(n=1)^N R_n / (P_("max",n)^d + 1) approx 17.3^N $
-  For $N = 4$: $17.3^4 approx 89,500 times$.
+  *(Exponential State Space Reduction).* For a chain of $N$ neurons, the
+  state space ratio between precise and discretized models compounds
+  exponentially:
+  $ frac(|S^"precise"|, |S^"disc"|) = product_(n=1)^N frac(R_n, P_("max",n)^d + 1) approx 17.3^N $
+  The factor $17.3$ is the per-neuron reduction ratio $242 slash 14$ from the
+  chain example above. For $N = 4$: $17.3^4 approx 89{,}500 times$.
 ]
 
 == Empirical Validation <sec-results>
 
 63 PRISM models were generated across 7 canonical topologies (single, chain-2
-through chain-4, fork, diamond, convergent), 3 configurations (deterministic,
-fast, full), and 3 model types (precise, disc. $W=2$, disc. $W=3$).
+through chain-4, fork, diamond, convergent), 3 configurations (Det: deterministic,
+Fast: no refractory period, Full: complete refractory dynamics), and 3 model types (precise, disc. $W=2$, disc. $W=3$).
 @tab-states reports the reachable state counts from DTMC exports.
 
 #figure(
@@ -437,22 +487,15 @@ This acceleration occurs because downstream neurons receive progressively
 richer input distributions, approaching the theoretical maximum of 484 per
 neuron as the reachability density $rho$ increases.
 
-Three further observations emerge:
-
-+ *Fan-out is more expensive than fan-in.* The fork topology (3 neurons, fan-out
-  2) produces 275 states (fast), while the convergent topology (1 processing
-  neuron, fan-in 2) produces only 20. Parallel branches multiply the module
-  count, whereas convergent inputs only increase the potential range.
-
-+ *BDD memory is the practical bottleneck.* The diamond topology (5 neurons)
-  causes CUDD out-of-memory in the full precise configuration,
-  while the explicit engine succeeds for chain-4 (362,289 states). BDD variable
-  ordering for multi-path topologies creates exponential intermediate
-  representations.
-
-+ *Discretization scales gracefully.* The disc. $W = 3$ diamond completes with
-  98 states, compared to OOM for the precise full model. @tab-limits summarizes
-  the estimated maximum network sizes.
+Three further observations emerge: (i)~_fan-out is more expensive than
+fan-in_---the fork topology (3 neurons, fan-out 2) produces 275 fast states
+versus 20 for the convergent topology (fan-in 2), because parallel branches
+multiply module counts; (ii)~_BDD memory is the practical bottleneck_---the
+diamond topology (5 neurons) causes CUDD OOM in the full precise
+configuration, while the explicit engine handles chain-4 (362,289 states);
+(iii)~_discretization scales gracefully_---the disc.~$W = 3$ diamond
+completes with 98 states versus OOM for the full precise model. @tab-limits
+summarizes the estimated maximum verifiable network sizes.
 
 #figure(
   table(
@@ -469,7 +512,7 @@ Three further observations emerge:
 ) <tab-limits>
 
 
-// ─── 6. Conclusion (~0.5 page) ──────────────────────────────────────────────
+// ─── 7. Conclusion (~0.5 page) ──────────────────────────────────────────────
 = Conclusion <sec-conclusion>
 
 This paper presented a weight-discretized quotient model abstraction for the
@@ -487,14 +530,9 @@ intractable. Empirical validation across seven canonical topologies confirms
 the theoretical predictions and identifies BDD memory as the binding practical
 constraint.
 
-Several directions for future work emerge. First, _compositional verification_
-could exploit the modular structure of neuronal archetypes @demaria2022formal
-to verify large networks by composing archetype-level guarantees. Second,
-_automated $W$ selection_ based on fan-in analysis could optimize the
-precision/tractability trade-off per neuron. Third, extending the framework to
-_recurrent topologies_ would broaden its applicability. Finally, integrating
-the formal verification loop into biologically plausible learning
-frameworks @bellec2019eligibility --- using verified safety constraints as
-modulatory third factors---could enable training of SNNs that are intrinsically
-correct by construction.
+Future directions include _compositional verification_ exploiting neuronal
+archetypes @demaria2022formal, _automated $W$ selection_ based on fan-in
+analysis, extension to _recurrent topologies_, and integrating verification
+into biologically plausible learning frameworks @bellec2019eligibility as
+modulatory safety constraints.
 
