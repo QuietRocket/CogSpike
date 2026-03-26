@@ -73,33 +73,47 @@
 = Introduction <sec-intro>
 
 Spiking Neural Networks (SNNs)---the third generation of artificial neural
-networks @maass1997networks ---communicate via discrete, asynchronous spikes
-whose precise timing encodes information alongside aggregate firing rates.
-This event-driven paradigm models biological neural dynamics more faithfully
-than rate-coded deep networks and offers substantial energy advantages on
-neuromorphic hardware such as Intel's Loihi @davies2018loihi and the
-SpiNNaker architecture @furber2014spinnaker. Among SNN neuron models, the
-Leaky Integrate-and-Fire (LIF) formulation @hodgkin1952quantitative provides analytical tractability,
-while richer models such as Izhikevich neurons @izhikevich2003simple
-reproduce a wider repertoire of biological firing patterns at higher
-computational cost.
+networks @maass1997networks ---are modelled as directed graphs whose nodes
+represent neurons and whose edges represent synaptic connections that can be
+either _excitatory_ (positive weight) or _inhibitory_ (negative weight).
+Unlike rate-coded deep networks, SNNs communicate via discrete, asynchronous
+spikes whose precise timing encodes information alongside aggregate firing
+rates, making them a natural candidate for studying how real neural circuits
+process and transmit information. Among SNN neuron models, the Leaky
+Integrate-and-Fire (LIF) formulation provides analytical
+tractability, while biophysically detailed models such as
+Hodgkin--Huxley @hodgkin1952quantitative and computationally efficient
+alternatives such as Izhikevich neurons @izhikevich2003simple reproduce a
+wider repertoire of biological firing patterns at higher computational cost.
 
-Biological neurons are inherently stochastic: ion-channel noise, unreliable
-synaptic vesicle release, and variable axonal delays introduce randomness at
-every stage of signal transmission @hodgkin1952quantitative @nguyen2021review.
-Probabilistic models are therefore mathematically necessary to faithfully
-capture these dynamics. The standard approach to formal SNN verification
-translates the network into a Discrete-Time Markov Chain (DTMC) and verifies
-behavioural properties expressed in Probabilistic Computation Tree Logic
-(PCTL) using a model checker such as PRISM @PRISM2011. However, this approach
-faces a fundamental barrier: the _state space explosion problem_. The DTMC
-state space grows exponentially with the number of neurons, rendering
-verification intractable beyond a handful of neurons. General-purpose quotient
-model abstractions @BaierKatoen2008 can in principle reduce DTMCs by
-partitioning states into equivalence classes, but a naïve application to SNNs
-treat all synapses uniformly, discarding weight information.
+Understanding how the brain computes requires studying the _temporal dynamics_
+of neural circuits---how spikes propagate, interact, and give rise to emergent
+behaviours in small but functionally relevant network topologies such as
+chains, convergent motifs, and recurrent loops. However, modelling these
+dynamics demands a delicate balance. On one hand, biological neurons are
+inherently stochastic: ion-channel noise, unreliable synaptic vesicle release,
+and variable axonal delays introduce randomness at every stage of signal
+transmission @hodgkin1952quantitative @nguyen2021review, making probabilistic
+models mathematically necessary. One promising avenue encodes the network as
+a Discrete-Time Markov Chain (DTMC) and applies probabilistic model checking,
+but this faces a fundamental barrier: the _state space explosion problem_,
+where the DTMC state space grows exponentially with network size, rendering
+verification intractable beyond a handful of neurons. A model that is biologically faithful yet computationally tractable
+enough for formal analysis represents a Pareto compromise between these two
+desiderata.
 
-This paper addresses both limitations. The contributions are fourfold:
+This paper pursues precisely that compromise. We propose CogSpike, a unified
+tool for probabilistic spiking neural networks that integrates three tightly
+coupled capabilities within a single isomorphic framework: (i)~_simulation_ of
+LIF-based SNN dynamics, (ii)~_formal modelling_ of the same networks as DTMCs
+for the PRISM model checker @PRISM2011, and (iii)~_automated model checking_
+of behavioural properties expressed in Probabilistic Computation Tree Logic
+(PCTL). The underlying neuron model employs a weight-discretized quotient
+abstraction that overcomes the limitations of naïve quotient
+models @BaierKatoen2008, which discard synaptic weight information when
+partitioning states into equivalence classes.
+
+Concretely, the contributions are fourfold:
 
 + A *weight discretization scheme* that maps continuous synaptic weights to a
   finite discrete range while preserving threshold feasibility and relative
@@ -115,12 +129,38 @@ This paper addresses both limitations. The contributions are fourfold:
   seven canonical topologies (@sec-scaling).
 
 + *CogSpike*, a unified workbench integrating SNN design, simulation,
-  and PRISM-based formal verification, using strict isomorphism between its
-  simulation engine and PRISM model generator (@sec-cogspike).
+  and formal verification, whose code generator produces a PRISM
+  representation isomorphic to the simulation engine, enabling automated
+  formal modelling and model checking (@sec-cogspike).
 
 
 // ─── 2. Related Work (~1 page) ──────────────────────────────────────────────
 = Related Work <sec-related>
+
+== Stochastic Approaches to SNN Modelling <sec-related-noise>
+
+Biological neurons exhibit significant trial-to-trial variability even under
+identical stimulation @gerstner2002spiking. Classical approaches capture this
+stochasticity through three mechanisms: _escape noise_, which introduces a
+probabilistic firing threshold; _diffusive noise_, modelling stochastic spike
+arrivals via synaptic bombardment; and _slow noise_, which adds fluctuations
+to neuronal parameters @gerstner2002spiking. These formulations underpin
+large-scale analyses of noisy integrate-and-fire
+networks @brunel1999fast, but they operate in continuous state spaces and do
+not yield discrete-state models amenable to exhaustive formal verification.
+
+Among existing simulators, Brian~2 @stimberg2019brian2 supports stochastic
+firing thresholds via escape noise (SDE integration), while
+Nengo @bekolay2014nengo, NEST @gewaltig2007nest, and
+BindsNET @hazan2018bindsnet are limited to noise injection at the input level.
+Crucially, none of these platforms support probabilistic model checking.
+
+Our model takes a different route: rather than adding continuous noise to
+a differential equation, we discretize the membrane potential into threshold
+levels and assign each level an explicit firing probability, yielding a
+finite-state probabilistic model that maps directly onto a DTMC. This
+enables exhaustive formal verification via model checking---a capability
+that is fundamentally unavailable with continuous-noise formulations.
 
 == Formal Verification of SNNs <sec-related-formal>
 
@@ -135,19 +175,21 @@ such as contralateral inhibition and convergent excitation---allowing
 macroscopic network properties to be composed from formally verified building
 blocks @demaria2022formal.
 
-Yao et al.~@yao2025probabilistic introduced the Refractory-evolve
-Probabilistic LI\&F (RP-LI\&F) neuron model, unifying discrete-time refractory
-dynamics with probabilistic spike generation. Their contract-based verification
-approach translates SNN topologies into Discrete-Time Markov Chains (DTMCs) and
-specifies behavioural properties using Probabilistic Computation Tree Logic
-(PCTL), enabling rigorous assume/guarantee contracts.
+More recently, Yao et al.~@yao2025probabilistic introduced the
+Refractory-evolve Probabilistic LI\&F (RP-LI\&F) neuron model, unifying
+discrete-time refractory dynamics with probabilistic spike generation. Their
+contract-based verification approach translates SNN topologies into
+Discrete-Time Markov Chains (DTMCs) and specifies behavioural properties
+using Probabilistic Computation Tree Logic (PCTL), enabling rigorous
+assume/guarantee contracts.
 
 These approaches establish the feasibility of formal SNN verification but
 share a common limitation: the _state space explosion problem_. As network
 size grows, the DTMC state space grows exponentially, and general-purpose
 quotient abstractions @BaierKatoen2008 would lose synaptic weight information
-if applied naïvely. Moreover, no existing tool unifies SNN simulation and
-formal verification. The present work addresses all three limitations.
+if applied naïvely. Moreover, no existing tool unifies probabilistic SNN
+simulation and formal verification. The present work addresses all three
+limitations.
 
 
 // ─── 3. Preliminaries (~1.5 pages) ──────────────────────────────────────────
@@ -178,7 +220,7 @@ machine: Normal ($s = 0$), Absolute Refractory Period (ARP, $s = 1$), and
 Relative Refractory Period (RRP, $s = 2$), with reduced firing probability
 during RRP scaled by factor $alpha$.
 
-== Probabilistic Model Checking and Temporal Logics <sec-model-checking>
+== Model Checking and Temporal Logics <sec-model-checking>
 
 #definition[
   A _Discrete-Time Markov Chain_ (DTMC) is a tuple $cal(D) = (S, s_0, bold(P))$
@@ -188,12 +230,32 @@ during RRP scaled by factor $alpha$.
   S$ @BaierKatoen2008.
 ]
 
-Behavioural properties to be verified are specified in Probabilistic
-Computation Tree Logic
-(PCTL), which extends branching-time temporal logic with probabilistic path
-quantifiers $P_(⋈ p) [phi]$. For instance,
+Behavioural properties over state-transition systems are expressed using
+_Computation Tree Logic_ (CTL) @BaierKatoen2008, a branching-time temporal
+logic built from four path operators: $bold(X) phi$ (_neXt_---$phi$ holds in
+the immediate successor state), $phi_1 bold(U) phi_2$ (_Until_---$phi_1$
+holds along a path until $phi_2$ becomes true), $bold(F) phi$
+(_Finally_---$phi$ eventually holds, syntactic sugar for
+$top bold(U) phi$), and $bold(G) phi$
+(_Globally_---$phi$ holds at every state along the path).
+
+_Probabilistic Computation Tree Logic_ (PCTL) extends CTL to stochastic
+systems by replacing the universal/existential path quantifiers with a
+probabilistic operator $P_(⋈ p) [psi]$, which asserts that the
+probability of satisfying path formula $psi$ meets the bound
+$⋈ p$ @BaierKatoen2008. For instance,
 $P_(>= 1)[bold(F) (y_n = 1)]$ asserts that neuron $n$ fires with probability
 one, while $P_(>= 1)[bold(G) (y_n = 0)]$ asserts permanent silence.
+
+The role of a _probabilistic model checker_ is to compute, given a DTMC
+$cal(D)$ and a PCTL property $phi$, the exact probability with which $phi$
+is satisfied from the initial state. In the context of SNN verification, this
+serves two purposes: (i)~_validating model correctness_---confirming that
+the formal DTMC encoding faithfully reproduces expected neural behaviours
+(e.g., tonic spiking under sustained input, silence without input); and
+(ii)~_studying the temporal dynamics_ of small but functionally relevant
+neural configurations, such as quantifying spike propagation probabilities
+across chains or characterizing inhibitory gating in convergent motifs.
 
 PRISM @PRISM2011 is a probabilistic model checker supporting DTMCs.
 Models are specified as parallel compositions of _modules_ with local integer
@@ -355,20 +417,21 @@ et al.~@naco20:
 // ─── 5. The CogSpike Workbench (~0.75 pages) ────────────────────────────────
 = The CogSpike Workbench <sec-cogspike>
 
-Existing SNN simulation platforms---Nengo @bekolay2014nengo,
-Brian~2 @stimberg2019brian2, NEST @gewaltig2007nest ---provide rich environments
-for designing and simulating spiking neural networks but lack integrated
-support for _formal verification_. Conversely, probabilistic model checkers
-such as PRISM @PRISM2011 operate on abstract models that must be constructed
-and maintained separately from the simulation code.
+Existing SNN simulation platforms offer varying levels of stochastic
+modelling---Brian~2 @stimberg2019brian2 supports stochastic firing thresholds
+via escape noise, while Nengo @bekolay2014nengo, NEST @gewaltig2007nest, and
+BindsNET @hazan2018bindsnet are limited to noise injection at the input
+level---but none integrate probabilistic model checking for formal
+verification.
 
-CogSpike bridges this gap by unifying SNN _design_, _simulation_, and
-_verification_ in a single desktop workbench. The tool is implemented in
-Rust with an immediate-mode GUI (egui), and its core design principle is
-*strict isomorphism*: the simulation engine and the PRISM model generator
-share the same mathematical model---the LIF dynamics of @eq-lif, the
-three-state refractory machine, and the probabilistic firing logic---so that
-verification results faithfully predict simulation behaviour.
+CogSpike bridges this gap by unifying _probabilistic_ SNN _design_,
+_simulation_, and _verification_ in a single desktop workbench. The tool is
+implemented in Rust with an immediate-mode GUI (egui), and its core design
+principle is *strict isomorphism*: the PRISM code generator produces a DTMC
+representation that is isomorphic to the simulation engine---both share the
+same mathematical model, namely the LIF dynamics of @eq-lif, the three-state
+refractory machine, and the probabilistic firing logic---so that verification
+results faithfully analyse simulation behaviour.
 
 The workbench provides:
 
