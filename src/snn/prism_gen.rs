@@ -4,8 +4,112 @@
 //! probabilistic model checking with PRISM.
 
 use crate::simulation::{GeneratorCombineMode, InputNeuronConfig, InputPattern, ModelConfig};
-use crate::snn::graph::{Node, SnnGraph};
+use crate::snn::graph::{Node, NodeId, SnnGraph};
+use std::collections::HashMap;
 use std::fmt::Write as _;
+
+// ============================================================================
+// Named Label Infrastructure
+// ============================================================================
+
+/// PRISM language reserved words that cannot be used as identifiers.
+const PRISM_RESERVED: &[&str] = &[
+    "module", "endmodule", "dtmc", "ctmc", "mdp", "const", "formula",
+    "label", "rewards", "endrewards", "init", "endinit", "global",
+    "true", "false", "int", "double", "bool", "min", "max",
+    "filter", "func", "ceil", "floor", "log", "mod", "pow", "sqrt",
+    "rate", "prob",
+];
+
+/// Maps `NodeId` → PRISM-safe identifier derived from the node's GUI label.
+pub type NameMap = HashMap<NodeId, String>;
+
+/// Sanitize a GUI label into a valid PRISM identifier.
+///
+/// - Non-alphanumeric characters become underscores
+/// - Consecutive / leading / trailing underscores are collapsed
+/// - Names starting with a digit get an `n` prefix
+/// - PRISM reserved words get a `_node` suffix
+pub fn sanitize_prism_label(label: &str) -> String {
+    let mapped: String = label
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '_' })
+        .collect();
+    // Collapse runs of underscores
+    let mut result = String::with_capacity(mapped.len());
+    let mut prev_underscore = true; // treat start as underscore to trim leading
+    for ch in mapped.chars() {
+        if ch == '_' {
+            if !prev_underscore {
+                result.push('_');
+            }
+            prev_underscore = true;
+        } else {
+            prev_underscore = false;
+            result.push(ch);
+        }
+    }
+    // Trim trailing underscore
+    if result.ends_with('_') {
+        result.pop();
+    }
+    // Handle empty or digit-leading
+    if result.is_empty() {
+        result = "unnamed".to_string();
+    } else if result.starts_with(|c: char| c.is_ascii_digit()) {
+        result = format!("n{result}");
+    }
+    // Avoid PRISM reserved words
+    if PRISM_RESERVED.contains(&result.to_lowercase().as_str()) {
+        result.push_str("_node");
+    }
+    result
+}
+
+/// Build a unique name map from the graph's node labels.
+///
+/// If two nodes sanitize to the same identifier, a `_<id>` suffix is
+/// appended to disambiguate.
+pub fn build_name_map(graph: &SnnGraph) -> NameMap {
+    let mut map = NameMap::new();
+    let mut seen: HashMap<String, Vec<NodeId>> = HashMap::new();
+    for node in &graph.nodes {
+        let sanitized = sanitize_prism_label(&node.label);
+        seen.entry(sanitized.clone()).or_default().push(node.id);
+        map.insert(node.id, sanitized);
+    }
+    // Disambiguate collisions
+    for (base, ids) in &seen {
+        if ids.len() > 1 {
+            for id in ids {
+                map.insert(*id, format!("{}_{}", base, id.0));
+            }
+        }
+    }
+    map
+}
+
+/// Write a comment header documenting the GUI-label → PRISM-identifier mapping.
+fn write_name_mapping_header(out: &mut String, graph: &SnnGraph, names: &NameMap) {
+    writeln!(out, "//").ok();
+    writeln!(out, "// Node name mapping (GUI label -> PRISM variables):").ok();
+    for node in &graph.nodes {
+        let name = &names[&node.id];
+        let role = if graph.is_input(node.id) {
+            "Input"
+        } else if graph.is_output(node.id) {
+            "Output"
+        } else {
+            "Neuron"
+        };
+        if graph.is_input(node.id) {
+            writeln!(out, "//   {name:>12} [{role}]  ->  x_{name}").ok();
+        } else {
+            writeln!(out, "//   {name:>12} [{role}]  ->  y_{name}, p_{name}").ok();
+        }
+    }
+    writeln!(out, "//").ok();
+}
 
 /// Configuration for PRISM model generation.
 #[derive(Debug, Clone)]
@@ -39,6 +143,7 @@ impl Default for PrismGenConfig {
 /// Generates a complete PRISM model from an SNN graph.
 pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String {
     let mut out = String::with_capacity(4096);
+    let names = build_name_map(graph);
 
     // Header
     writeln!(out, "// Auto-generated PRISM model from CogSpike").ok();
@@ -49,10 +154,11 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
         graph.edges.len()
     )
     .ok();
+    write_name_mapping_header(&mut out, graph, &names);
     writeln!(out, "dtmc\n").ok();
 
     // Global constants from ModelConfig
-    write_global_constants(&mut out, graph, config);
+    write_global_constants(&mut out, graph, config, &names);
     writeln!(out).ok();
 
     // Threshold formulas
@@ -60,7 +166,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     writeln!(out).ok();
 
     // Weight constants for each edge
-    write_weight_constants(&mut out, graph);
+    write_weight_constants(&mut out, graph, &names);
     writeln!(out).ok();
 
     // Transfer variables (spike propagation between neurons)
@@ -68,11 +174,11 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     writeln!(out).ok();
 
     // Potential formulas for each neuron
-    write_potential_formulas(&mut out, graph, config);
+    write_potential_formulas(&mut out, graph, config, &names);
     writeln!(out).ok();
 
     // Input module
-    write_input_module(&mut out, graph, config);
+    write_input_module(&mut out, graph, config, &names);
     writeln!(out).ok();
 
     // Neuron modules
@@ -80,7 +186,7 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
         if graph.is_input(node.id) {
             continue; // Inputs handled separately
         }
-        write_neuron_module(&mut out, node, graph, config);
+        write_neuron_module(&mut out, node, graph, config, &names);
         writeln!(out).ok();
     }
 
@@ -90,16 +196,16 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
 
     // Rewards for spike counting
     if config.include_rewards {
-        write_rewards(&mut out, graph);
+        write_rewards(&mut out, graph, &names);
     }
 
     // Labels for common properties
-    write_labels(&mut out, graph, config);
+    write_labels(&mut out, graph, config, &names);
 
     out
 }
 
-fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
+fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
     let m = &config.model;
     writeln!(out, "// Global neuron parameters").ok();
     // Values are already in 0-100 range
@@ -137,9 +243,10 @@ fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenC
         if graph.is_input(node.id) {
             continue;
         }
+        let name = &names[&node.id];
         let (n_min, n_max) = compute_neuron_potential_range(node, graph, config);
-        writeln!(out, "const int P_MIN_{} = {};", node.id.0, n_min).ok();
-        writeln!(out, "const int P_MAX_{} = {};", node.id.0, n_max).ok();
+        writeln!(out, "const int P_MIN_{name} = {n_min};").ok();
+        writeln!(out, "const int P_MAX_{name} = {n_max};").ok();
     }
 
     if let Some(t) = config.time_bound {
@@ -202,30 +309,17 @@ fn write_threshold_formulas(out: &mut String, config: &PrismGenConfig) {
     }
 }
 
-fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
+fn write_weight_constants(out: &mut String, graph: &SnnGraph, names: &NameMap) {
     writeln!(out, "// Synaptic weights").ok();
     for edge in &graph.edges {
-        let is_input = graph.is_input(edge.from);
-        // signed_weight() now returns i16 directly in -100..100 range
+        let from_name = &names[&edge.from];
+        let to_name = &names[&edge.to];
         let effective_weight = edge.signed_weight();
-
-        if is_input {
-            // Input to neuron weight
-            writeln!(
-                out,
-                "const int weight_in{}_{} = {};",
-                edge.from.0, edge.to.0, effective_weight
-            )
-            .ok();
-        } else {
-            // Neuron to neuron weight
-            writeln!(
-                out,
-                "const int weight_n{}_{} = {};",
-                edge.from.0, edge.to.0, effective_weight
-            )
-            .ok();
-        }
+        writeln!(
+            out,
+            "const int w_{from_name}_{to_name} = {effective_weight};"
+        )
+        .ok();
     }
 }
 
@@ -241,7 +335,7 @@ fn write_transfer_formulas(out: &mut String, _graph: &SnnGraph) {
     .ok();
 }
 
-fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismGenConfig) {
+fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismGenConfig, names: &NameMap) {
     writeln!(
         out,
         "// Membrane potential update formulas (using per-neuron bounds)"
@@ -254,14 +348,14 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
             continue;
         }
 
-        let n = node.id.0;
+        let n = &names[&node.id];
         let incoming: Vec<_> = graph.incoming_edges(node.id).into_iter().collect();
 
         if incoming.is_empty() {
             // No inputs, potential just decays
             writeln!(
                 out,
-                "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(r * p{n})));"
+                "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(r * p_{n})));"
             )
             .ok();
             continue;
@@ -271,18 +365,14 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
         let mut terms = Vec::new();
 
         for edge in incoming {
+            let from_name = &names[&edge.from];
+            let to_name = &names[&edge.to];
             if graph.is_input(edge.from) {
                 // Input contribution
-                terms.push(format!(
-                    "weight_in{}_{} * x{}",
-                    edge.from.0, edge.to.0, edge.from.0
-                ));
+                terms.push(format!("w_{from_name}_{to_name} * x_{from_name}"));
             } else {
                 // Neuron spike contribution (read y directly — 1-tick delay)
-                terms.push(format!(
-                    "weight_n{}_{} * y{}",
-                    edge.from.0, edge.to.0, edge.from.0
-                ));
+                terms.push(format!("w_{from_name}_{to_name} * y_{from_name}"));
             }
         }
 
@@ -294,7 +384,7 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
 
         writeln!(
             out,
-            "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(({input_sum}) + r * p{n})));"
+            "formula newPotential_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(({input_sum}) + r * p_{n})));"
         )
         .ok();
     }
@@ -340,8 +430,8 @@ fn write_global_clock(out: &mut String, config: &PrismGenConfig) {
 
 /// Convert a deterministic pattern to a PRISM formula expression.
 /// Returns None for probabilistic patterns (Random, Poisson) and InternalFiring.
-fn pattern_to_formula(pattern: &InputPattern, input_id: u32, gen_idx: usize) -> Option<String> {
-    let formula_name = format!("in{input_id}_g{gen_idx}");
+fn pattern_to_formula(pattern: &InputPattern, input_name: &str, gen_idx: usize) -> Option<String> {
+    let formula_name = format!("in_{input_name}_g{gen_idx}");
     match pattern {
         InputPattern::AlwaysOn => Some(format!("formula {formula_name}_fires = true;")),
         InputPattern::AlwaysOff => Some(format!("formula {formula_name}_fires = false;")),
@@ -451,7 +541,7 @@ struct CategorizedGenerators {
 /// Categorize active generators into deterministic and probabilistic.
 fn categorize_generators(
     cfg: &InputNeuronConfig,
-    input_id: u32,
+    input_name: &str,
     dt_ms: f32,
 ) -> CategorizedGenerators {
     let mut deterministic = Vec::new();
@@ -464,7 +554,7 @@ fn categorize_generators(
         if let Some(prob) = pattern_probability(&generator.pattern, dt_ms) {
             probabilistic.push(prob);
         } else {
-            deterministic.push((idx, format!("in{input_id}_g{idx}_fires")));
+            deterministic.push((idx, format!("in_{input_name}_g{idx}_fires")));
         }
     }
 
@@ -474,7 +564,7 @@ fn categorize_generators(
     }
 }
 
-fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
+fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
     let inputs: Vec<_> = graph
         .nodes
         .iter()
@@ -495,13 +585,13 @@ fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfi
     // Write per-generator formulas for deterministic patterns
     writeln!(out, "// Input generator formulas").ok();
     for input in &inputs {
-        let n = input.id.0;
+        let input_name = &names[&input.id];
         if let Some(ref cfg) = input.input_config {
             for (idx, generator) in cfg.generators.iter().enumerate() {
                 if !generator.active {
                     continue;
                 }
-                if let Some(formula) = pattern_to_formula(&generator.pattern, n, idx) {
+                if let Some(formula) = pattern_to_formula(&generator.pattern, input_name, idx) {
                     writeln!(out, "{formula}").ok();
                 }
             }
@@ -520,7 +610,8 @@ fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfi
 
     // Input variables
     for input in &inputs {
-        writeln!(out, "  x{} : [0..1] init 0;", input.id.0).ok();
+        let input_name = &names[&input.id];
+        writeln!(out, "  x_{input_name} : [0..1] init 0;").ok();
     }
     writeln!(out).ok();
 
@@ -528,25 +619,25 @@ fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfi
 
     // Generate transitions for each input
     for input in &inputs {
-        let n = input.id.0;
+        let input_name = &names[&input.id];
 
         if let Some(ref cfg) = input.input_config {
             let active_count = cfg.generators.iter().filter(|g| g.active).count();
 
             if active_count == 0 {
                 // No active generators -> always off
-                writeln!(out, "  [tick] true -> (x{n}' = 0);").ok();
+                writeln!(out, "  [tick] true -> (x_{input_name}' = 0);").ok();
                 continue;
             }
 
-            let cats = categorize_generators(cfg, n, dt_ms);
+            let cats = categorize_generators(cfg, input_name, dt_ms);
             let mode = cfg.combine_mode;
 
             // Generate transitions based on mode and generator types
-            write_input_transitions(out, n, &cats, mode);
+            write_input_transitions(out, input_name, &cats, mode);
         } else {
             // No config -> legacy behavior (always on)
-            writeln!(out, "  [tick] true -> (x{n}' = 1);").ok();
+            writeln!(out, "  [tick] true -> (x_{input_name}' = 1);").ok();
         }
     }
 
@@ -556,17 +647,17 @@ fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfi
 /// Write PRISM transitions for a single input neuron with categorized generators.
 fn write_input_transitions(
     out: &mut String,
-    input_id: u32,
+    input_name: &str,
     cats: &CategorizedGenerators,
     mode: GeneratorCombineMode,
 ) {
-    let n = input_id;
+    let n = input_name;
     let has_det = !cats.deterministic.is_empty();
     let has_prob = !cats.probabilistic.is_empty();
 
     if !has_det && !has_prob {
         // No active generators
-        writeln!(out, "  [tick] true -> (x{n}' = 0);").ok();
+        writeln!(out, "  [tick] true -> (x_{n}' = 0);").ok();
         return;
     }
 
@@ -576,7 +667,7 @@ fn write_input_transitions(
         let p_no_fire = 1.0 - p_fire;
         writeln!(
             out,
-            "  [tick] true -> {:.6}:(x{n}' = 1) + {:.6}:(x{n}' = 0);",
+            "  [tick] true -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
             p_fire, p_no_fire
         )
         .ok();
@@ -586,8 +677,8 @@ fn write_input_transitions(
     if !has_prob {
         // All deterministic - just use formula
         let combined_formula = combine_deterministic_formulas(&cats.deterministic, mode);
-        writeln!(out, "  [tick] {combined_formula} -> (x{n}' = 1);").ok();
-        writeln!(out, "  [tick] !({combined_formula}) -> (x{n}' = 0);").ok();
+        writeln!(out, "  [tick] {combined_formula} -> (x_{n}' = 1);").ok();
+        writeln!(out, "  [tick] !({combined_formula}) -> (x_{n}' = 0);").ok();
         return;
     }
 
@@ -596,35 +687,30 @@ fn write_input_transitions(
 
     match mode {
         GeneratorCombineMode::Or => {
-            // OR: if any deterministic fires -> fire; else -> probabilistic
             let det_formula =
                 combine_deterministic_formulas(&cats.deterministic, GeneratorCombineMode::Or);
-            writeln!(out, "  [tick] ({det_formula}) -> (x{n}' = 1);").ok();
+            writeln!(out, "  [tick] ({det_formula}) -> (x_{n}' = 1);").ok();
             writeln!(
                 out,
-                "  [tick] !({det_formula}) -> {:.6}:(x{n}' = 1) + {:.6}:(x{n}' = 0);",
+                "  [tick] !({det_formula}) -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
                 p_prob,
                 1.0 - p_prob
             )
             .ok();
         }
         GeneratorCombineMode::And => {
-            // AND: if any deterministic doesn't fire -> no fire; else -> probabilistic
             let det_formula =
                 combine_deterministic_formulas(&cats.deterministic, GeneratorCombineMode::And);
-            writeln!(out, "  [tick] !({det_formula}) -> (x{n}' = 0);").ok();
+            writeln!(out, "  [tick] !({det_formula}) -> (x_{n}' = 0);").ok();
             writeln!(
                 out,
-                "  [tick] ({det_formula}) -> {:.6}:(x{n}' = 1) + {:.6}:(x{n}' = 0);",
+                "  [tick] ({det_formula}) -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
                 p_prob,
                 1.0 - p_prob
             )
             .ok();
         }
         GeneratorCombineMode::Xor => {
-            // XOR: need to enumerate deterministic parities
-            // For simplicity with mixed patterns, we enumerate all 2^|D| states
-            // This may cause state explosion for many deterministic generators
             write_xor_mixed_transitions(out, n, cats);
         }
     }
@@ -662,12 +748,11 @@ fn combine_deterministic_formulas(
 
 /// Write XOR transitions for mixed deterministic/probabilistic generators.
 /// This enumerates all 2^|D| deterministic states.
-fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &CategorizedGenerators) {
-    let n = input_id;
+fn write_xor_mixed_transitions(out: &mut String, input_name: &str, cats: &CategorizedGenerators) {
+    let n = input_name;
     let det_count = cats.deterministic.len();
 
     if det_count > 4 {
-        // Warn about potential state explosion
         writeln!(
             out,
             "  // WARNING: XOR with {} deterministic generators may cause state explosion",
@@ -676,12 +761,10 @@ fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &Categoriz
         .ok();
     }
 
-    // For each subset of firing deterministic generators
     for mask in 0..(1u32 << det_count) {
         let det_fire_count = mask.count_ones() as usize;
         let det_parity = det_fire_count % 2;
 
-        // Build guard: which formulas fire and which don't
         let mut guard_parts = Vec::new();
         for (bit, (_, formula)) in cats.deterministic.iter().enumerate() {
             if (mask >> bit) & 1 == 1 {
@@ -692,11 +775,7 @@ fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &Categoriz
         }
         let guard = guard_parts.join(" & ");
 
-        // Compute probabilistic contribution to parity
-        // We need probability that prob generators produce parity that makes total odd
-        let target_prob_parity = 1 - det_parity; // Need this parity from prob to get odd total
-
-        // P(odd prob fires)
+        let target_prob_parity = 1 - det_parity;
         let p_prob_odd =
             compute_combined_probability(&cats.probabilistic, GeneratorCombineMode::Xor);
 
@@ -708,13 +787,13 @@ fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &Categoriz
         let p_no_fire = 1.0 - p_fire;
 
         if (p_fire - 1.0).abs() < 1e-9 {
-            writeln!(out, "  [tick] ({guard}) -> (x{n}' = 1);").ok();
+            writeln!(out, "  [tick] ({guard}) -> (x_{n}' = 1);").ok();
         } else if p_fire.abs() < 1e-9 {
-            writeln!(out, "  [tick] ({guard}) -> (x{n}' = 0);").ok();
+            writeln!(out, "  [tick] ({guard}) -> (x_{n}' = 0);").ok();
         } else {
             writeln!(
                 out,
-                "  [tick] ({guard}) -> {:.6}:(x{n}' = 1) + {:.6}:(x{n}' = 0);",
+                "  [tick] ({guard}) -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
                 p_fire, p_no_fire
             )
             .ok();
@@ -723,8 +802,8 @@ fn write_xor_mixed_transitions(out: &mut String, input_id: u32, cats: &Categoriz
 }
 
 #[expect(clippy::needless_range_loop)]
-fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config: &PrismGenConfig) {
-    let n = node.id.0;
+fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
+    let n = &names[&node.id];
     let model = &config.model;
     let levels = model.threshold_levels.clamp(1, 10);
 
@@ -737,7 +816,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         0
     };
 
-    writeln!(out, "module Neuron{n}").ok();
+    writeln!(out, "module {n}").ok();
 
     // Only declare state variable if refractory periods are enabled
     if model.enable_arp || model.enable_rrp {
@@ -748,38 +827,32 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             if model.enable_rrp { ", 2=RRP" } else { "" }
         )
         .ok();
-        writeln!(out, "  s{n} : [0..{max_state}] init 0;").ok();
+        writeln!(out, "  s_{n} : [0..{max_state}] init 0;").ok();
     } else {
         writeln!(out, "  // No refractory periods - simplified model").ok();
     }
 
     if model.enable_arp {
-        writeln!(out, "  aref{n} : [0..ARP] init 0;").ok();
+        writeln!(out, "  aref_{n} : [0..ARP] init 0;").ok();
     }
     if model.enable_rrp {
-        writeln!(out, "  rref{n} : [0..RRP] init 0;").ok();
+        writeln!(out, "  rref_{n} : [0..RRP] init 0;").ok();
     }
 
-    writeln!(out, "  y{n} : [0..1] init 0;  // spike output").ok();
+    writeln!(out, "  y_{n} : [0..1] init 0;  // spike output").ok();
     writeln!(
         out,
-        "  p{} : [P_MIN_{}..P_MAX_{}] init {};  // membrane potential (per-neuron bounds)",
-        n, n, n, model.p_rest
+        "  p_{n} : [P_MIN_{n}..P_MAX_{n}] init {};  // membrane potential",
+        model.p_rest
     )
     .ok();
     writeln!(out).ok();
 
-    // Generate probability step size based on configured levels
     let step = 1.0 / levels as f64;
-
-    // ── Isomorphic firing: guards check newPotential (post-accumulation) ──
-    // Matches simulation.rs handle_normal_state() which checks new_potential
-    // against thresholds. Fire branch sets p' = P_reset (no dead reset tick).
-    // y is set purely as output; no y=1 reset guard needed.
 
     // State guard prefix - only needed if refractory periods are enabled
     let state_guard = if model.enable_arp || model.enable_rrp {
-        format!("s{n} = 0 & ")
+        format!("s_{n} = 0 & ")
     } else {
         String::new()
     };
@@ -793,7 +866,7 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     // Below threshold1: no spike
     writeln!(
         out,
-        "  [tick] {state_guard}newPotential_{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
+        "  [tick] {state_guard}newPotential_{n} <= threshold1 -> (y_{n}' = 0) & (p_{n}' = newPotential_{n});"
     ).ok();
 
     // Threshold-based probabilistic firing (variable levels)
@@ -803,15 +876,15 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         let spike_prob = prob;
         writeln!(
             out,
-            "  [tick] {state_guard}newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset);",
+            "  [tick] {state_guard}newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y_{n}' = 0) & (p_{n}' = newPotential_{n}) + {:.4}:(y_{n}' = 1) & (p_{n}' = P_reset);",
             i + 1, i + 2, no_spike_prob, spike_prob
         ).ok();
     }
 
-    // Above top threshold: always spike (fire + reset in same transition)
+    // Above top threshold: always spike
     writeln!(
         out,
-        "  [tick] {state_guard}newPotential_{n} > threshold{levels} -> 1.0:(y{n}' = 1) & (p{n}' = P_reset);"
+        "  [tick] {state_guard}newPotential_{n} > threshold{levels} -> 1.0:(y_{n}' = 1) & (p_{n}' = P_reset);"
     )
     .ok();
 
@@ -822,21 +895,19 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         writeln!(out, "  // Absolute refractory period").ok();
         writeln!(
             out,
-            "  [tick] s{n} = 1 & aref{n} > 0 -> (aref{n}' = aref{n} - 1) & (y{n}' = 0) & (p{n}' = newPotential_{n});"
+            "  [tick] s_{n} = 1 & aref_{n} > 0 -> (aref_{n}' = aref_{n} - 1) & (y_{n}' = 0) & (p_{n}' = newPotential_{n});"
         ).ok();
 
         if model.enable_rrp {
-            // ARP finished -> RRP
             writeln!(
                 out,
-                "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 2) & (rref{n}' = RRP) & (y{n}' = 0);"
+                "  [tick] s_{n} = 1 & aref_{n} = 0 -> (s_{n}' = 2) & (rref_{n}' = RRP) & (y_{n}' = 0);"
             )
             .ok();
         } else {
-            // ARP finished -> Normal (skip RRP)
             writeln!(
                 out,
-                "  [tick] s{n} = 1 & aref{n} = 0 -> (s{n}' = 0) & (y{n}' = 0);"
+                "  [tick] s_{n} = 1 & aref_{n} = 0 -> (s_{n}' = 0) & (y_{n}' = 0);"
             )
             .ok();
         }
@@ -854,10 +925,9 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         )
         .ok();
 
-        // RRP probabilistic firing (alpha-scaled) — guards on newPotential
         writeln!(
             out,
-            "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
+            "  [tick] s_{n} = 2 & rref_{n} > 0 & newPotential_{n} <= threshold1 -> (y_{n}' = 0) & (p_{n}' = newPotential_{n}) & (rref_{n}' = rref_{n} - 1);"
         ).ok();
 
         for i in 0..(levels - 1) {
@@ -866,63 +936,60 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             let no_spike_prob = 1.0 - spike_prob;
             writeln!(
                 out,
-                "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
+                "  [tick] s_{n} = 2 & rref_{n} > 0 & newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y_{n}' = 0) & (p_{n}' = newPotential_{n}) & (rref_{n}' = rref_{n} - 1) + {:.4}:(y_{n}' = 1) & (p_{n}' = P_reset) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);",
                 i + 1, i + 2, no_spike_prob, spike_prob
             ).ok();
         }
 
-        // RRP above max threshold: spike with alpha-scaled probability
         let max_spike_prob = alpha;
         let max_no_spike_prob = 1.0 - alpha;
         writeln!(
             out,
-            "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} > threshold{levels} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
+            "  [tick] s_{n} = 2 & rref_{n} > 0 & newPotential_{n} > threshold{levels} -> {:.4}:(y_{n}' = 0) & (p_{n}' = newPotential_{n}) & (rref_{n}' = rref_{n} - 1) + {:.4}:(y_{n}' = 1) & (p_{n}' = P_reset) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);",
             max_no_spike_prob, max_spike_prob
         ).ok();
 
         // RRP ended - return to normal
         writeln!(
             out,
-            "  [tick] s{n} = 2 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
+            "  [tick] s_{n} = 2 & rref_{n} = 0 -> (p_{n}' = P_reset) & (y_{n}' = 0) & (s_{n}' = 0);"
         ).ok();
     }
 
     writeln!(out, "endmodule").ok();
 }
 
-fn write_rewards(out: &mut String, graph: &SnnGraph) {
+fn write_rewards(out: &mut String, graph: &SnnGraph, names: &NameMap) {
     writeln!(out, "// Spike count rewards").ok();
 
     for node in &graph.nodes {
-        // Skip Input nodes - they don't have neuron modules
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "rewards \"spike{}_count\"", node.id.0).ok();
-        writeln!(out, "  y{} = 1 : 1;", node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "rewards \"spike_{n}_count\"").ok();
+        writeln!(out, "  y_{n} = 1 : 1;").ok();
         writeln!(out, "endrewards").ok();
         writeln!(out).ok();
     }
 }
 
-fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
+fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
     writeln!(out, "// Labels for PCTL properties").ok();
     let model = &config.model;
 
     for node in &graph.nodes {
-        // Skip Input nodes - they don't have neuron modules
         if graph.is_input(node.id) {
             continue;
         }
-        let n = node.id.0;
-        writeln!(out, "label \"spike{n}\" = (y{n} = 1);").ok();
+        let n = &names[&node.id];
+        writeln!(out, "label \"spike_{n}\" = (y_{n} = 1);").ok();
 
-        // Only generate refractory label if ARP is enabled
         if model.enable_arp {
             if model.enable_rrp {
-                writeln!(out, "label \"refractory{n}\" = (s{n} = 1 | s{n} = 2);").ok();
+                writeln!(out, "label \"refractory_{n}\" = (s_{n} = 1 | s_{n} = 2);").ok();
             } else {
-                writeln!(out, "label \"refractory{n}\" = (s{n} = 1);").ok();
+                writeln!(out, "label \"refractory_{n}\" = (s_{n} = 1);").ok();
             }
         }
     }
@@ -931,7 +998,7 @@ fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
     let outputs = graph.output_neurons();
 
     if !outputs.is_empty() {
-        let output_spikes: Vec<_> = outputs.iter().map(|id| format!("y{} = 1", id.0)).collect();
+        let output_spikes: Vec<_> = outputs.iter().map(|id| format!("y_{} = 1", names[id])).collect();
         writeln!(
             out,
             "label \"output_spike\" = ({});",
@@ -944,6 +1011,7 @@ fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig) {
 /// Generates PCTL property specifications for common verification queries.
 pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     let mut out = String::with_capacity(1024);
+    let names = build_name_map(graph);
 
     writeln!(out, "// Auto-generated PCTL properties from CogSpike").ok();
     writeln!(out, "const int T;  // Time bound parameter\n").ok();
@@ -953,7 +1021,8 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "label \"spike{}\" = (y{} = 1);", node.id.0, node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "label \"spike_{n}\" = (y_{n} = 1);").ok();
     }
     writeln!(out).ok();
 
@@ -963,7 +1032,8 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "P=? [ F \"spike{}\" ]", node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "P=? [ F \"spike_{n}\" ]").ok();
     }
     writeln!(out).ok();
 
@@ -973,7 +1043,8 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "P=? [ F<=T \"spike{}\" ]", node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "P=? [ F<=T \"spike_{n}\" ]").ok();
     }
     writeln!(out).ok();
 
@@ -983,7 +1054,8 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "P>=1 [ G (F \"spike{}\") ]", node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "P>=1 [ G (F \"spike_{n}\") ]").ok();
     }
     writeln!(out).ok();
 
@@ -993,10 +1065,10 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
+        let n = &names[&node.id];
         writeln!(
             out,
-            "P>=1 [ G ((s{} = 1) => (y{} = 0)) ]",
-            node.id.0, node.id.0
+            "P>=1 [ G ((s_{n} = 1) => (y_{n} = 0)) ]"
         )
         .ok();
     }
@@ -1008,7 +1080,8 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
         if graph.is_input(node.id) {
             continue;
         }
-        writeln!(out, "R{{\"spike{}_count\"}}=? [ C<=T ]", node.id.0).ok();
+        let n = &names[&node.id];
+        writeln!(out, "R{{\"spike_{n}_count\"}}=? [ C<=T ]").ok();
     }
 
     out
@@ -1078,13 +1151,13 @@ mod tests {
         let prism = generate_prism_model(&graph, &config);
 
         // Should NOT have state variable when refractory is disabled
-        assert!(!prism.contains("s2 : [0.."));
+        assert!(!prism.contains("s_Neuron_A : [0.."));
         // Should have simplified model comment
         assert!(prism.contains("// No refractory periods - simplified model"));
         // Should NOT have aref variable declaration
-        assert!(!prism.contains("aref2 : [0..ARP]"));
+        assert!(!prism.contains("aref_Neuron_A : [0..ARP]"));
         // Should NOT have refractory label (since ARP is disabled)
-        assert!(!prism.contains("label \"refractory2\""));
+        assert!(!prism.contains("label \"refractory_Neuron_A\""));
     }
 
     #[test]
@@ -1103,13 +1176,13 @@ mod tests {
         let prism = generate_prism_model(&graph, &config);
 
         // State should go to 0..1 (normal, ARP)
-        assert!(prism.contains("s2 : [0..1] init 0;"));
+        assert!(prism.contains("s_Neuron_A : [0..1] init 0;"));
         // Should have ARP variable
-        assert!(prism.contains("aref2 : [0..ARP] init 0;"));
+        assert!(prism.contains("aref_Neuron_A : [0..ARP] init 0;"));
         // Should NOT have RRP variable
-        assert!(!prism.contains("rref2 : [0..RRP]"));
+        assert!(!prism.contains("rref_Neuron_A : [0..RRP]"));
         // Refractory label should only reference s=1
-        assert!(prism.contains("label \"refractory2\" = (s2 = 1);"));
+        assert!(prism.contains("label \"refractory_Neuron_A\" = (s_Neuron_A = 1);"));
     }
 
     #[test]
@@ -1157,7 +1230,6 @@ mod tests {
 
     #[test]
     fn test_compute_combined_probability_or() {
-        // OR: P(at least one) = 1 - (1-0.3)*(1-0.5) = 1 - 0.35 = 0.65
         let probs = vec![0.3, 0.5];
         let result = compute_combined_probability(&probs, GeneratorCombineMode::Or);
         assert!((result - 0.65).abs() < 0.0001);
@@ -1165,7 +1237,6 @@ mod tests {
 
     #[test]
     fn test_compute_combined_probability_and() {
-        // AND: P(all) = 0.3 * 0.5 = 0.15
         let probs = vec![0.3, 0.5];
         let result = compute_combined_probability(&probs, GeneratorCombineMode::And);
         assert!((result - 0.15).abs() < 0.0001);
@@ -1173,7 +1244,6 @@ mod tests {
 
     #[test]
     fn test_compute_combined_probability_xor() {
-        // XOR: P(exactly one) = 0.3*(1-0.5) + (1-0.3)*0.5 = 0.15 + 0.35 = 0.5
         let probs = vec![0.3, 0.5];
         let result = compute_combined_probability(&probs, GeneratorCombineMode::Xor);
         assert!((result - 0.5).abs() < 0.0001);
@@ -1185,7 +1255,7 @@ mod tests {
             period: 5,
             phase: 2,
         };
-        let formula = pattern_to_formula(&pattern, 0, 0);
+        let formula = pattern_to_formula(&pattern, "S1", 0);
         assert!(formula.is_some());
         let f = formula.unwrap();
         assert!(f.contains("mod(step + 2, 5) = 0"));
@@ -1197,7 +1267,7 @@ mod tests {
             burst_length: 3,
             silence_length: 2,
         };
-        let formula = pattern_to_formula(&pattern, 1, 0);
+        let formula = pattern_to_formula(&pattern, "S2", 0);
         assert!(formula.is_some());
         let f = formula.unwrap();
         assert!(f.contains("mod(step, 5) < 3"));
@@ -1206,7 +1276,7 @@ mod tests {
     #[test]
     fn test_pattern_to_formula_random_returns_none() {
         let pattern = InputPattern::Random { probability: 0.5 };
-        let formula = pattern_to_formula(&pattern, 0, 0);
+        let formula = pattern_to_formula(&pattern, "S1", 0);
         assert!(formula.is_none());
     }
 
@@ -1244,8 +1314,8 @@ mod tests {
         );
         assert!(prism.contains("step :"), "step variable missing");
 
-        // Should contain formula for the periodic pattern (node id is 1 from add_node)
-        assert!(prism.contains("in1_g0_fires"), "Generator formula missing");
+        // Should contain formula for the periodic pattern (label: "Input0")
+        assert!(prism.contains("in_Input0_g0_fires"), "Generator formula missing");
     }
 
     #[test]
@@ -1290,37 +1360,36 @@ mod tests {
         use crate::snn::graph::NodeKind;
 
         // Create a diamond topology: Input -> A -> (B, C) -> D
-        // A has 1 input (weight 100), D has 2 inputs (weight 100 each)
         let mut graph = SnnGraph::default();
         let input = graph.add_node("Input", NodeKind::Neuron, [0.0, 0.0]);
-        let a = graph.add_node("A", NodeKind::Neuron, [100.0, 0.0]);
+        let _a = graph.add_node("A", NodeKind::Neuron, [100.0, 0.0]);
         let b = graph.add_node("B", NodeKind::Neuron, [200.0, -50.0]);
         let c = graph.add_node("C", NodeKind::Neuron, [200.0, 50.0]);
         let d = graph.add_node("D", NodeKind::Neuron, [300.0, 0.0]);
 
-        graph.add_edge(input, a, 100);
-        graph.add_edge(a, b, 100);
-        graph.add_edge(a, c, 100);
+        graph.add_edge(input, _a, 100);
+        graph.add_edge(_a, b, 100);
+        graph.add_edge(_a, c, 100);
         graph.add_edge(b, d, 100);
         graph.add_edge(c, d, 100);
 
         let config = PrismGenConfig::default();
         let prism = generate_prism_model(&graph, &config);
 
-        // Check per-neuron constants are generated
+        // Check per-neuron constants are generated with named labels
         assert!(prism.contains("// Per-neuron potential bounds"));
 
-        // A has 1 input: P_MAX should be based on weight 100 -> 150 (100 * 1.5)
-        assert!(prism.contains(&format!("P_MAX_{} = 150", a.0)));
+        // A has 1 input: P_MAX should be based on weight 100 -> 150
+        assert!(prism.contains("P_MAX_A = 150"));
 
-        // D has 2 inputs: P_MAX should be based on weight 200 -> 300 (200 * 1.5)
-        assert!(prism.contains(&format!("P_MAX_{} = 300", d.0)));
+        // D has 2 inputs: P_MAX should be based on weight 200 -> 300
+        assert!(prism.contains("P_MAX_D = 300"));
 
         // All neurons should have P_MIN = 0 (no inhibitory)
-        assert!(prism.contains(&format!("P_MIN_{} = 0", a.0)));
-        assert!(prism.contains(&format!("P_MIN_{} = 0", d.0)));
+        assert!(prism.contains("P_MIN_A = 0"));
+        assert!(prism.contains("P_MIN_D = 0"));
 
-        // Neuron modules should use per-neuron bounds
-        assert!(prism.contains(&format!("p{} : [P_MIN_{}..P_MAX_{}]", d.0, d.0, d.0)));
+        // Neuron modules should use per-neuron bounds with named labels
+        assert!(prism.contains("p_D : [P_MIN_D..P_MAX_D]"));
     }
 }
