@@ -1059,6 +1059,15 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
         ctx.request_repaint_after(Duration::from_millis(100));
     }
 
+    // Continuously sync the formula editor back to the active property so
+    // active_formula() always returns the latest user input.
+    if let Some(pi) = app.selection.property {
+        if let Some(prop) = app.properties.get_mut(pi) {
+            prop.formula = app.verify.current_formula.clone();
+            prop.description = app.verify.description.clone();
+        }
+    }
+
     ui.horizontal(|ui| {
         ui.label("Property set:");
         ui.strong(
@@ -1298,7 +1307,18 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         columns[1].label("Editor & results");
         columns[1].add_space(4.0);
-        columns[1].text_edit_multiline(&mut app.verify.current_formula);
+        let formula_response = columns[1].add(
+            egui::TextEdit::singleline(&mut app.verify.current_formula)
+                .font(egui::TextStyle::Monospace)
+                .hint_text("PCTL formula, e.g. P=? [ F \"spike\" ]")
+                .desired_width(f32::INFINITY),
+        );
+        // Press Enter in the formula field to immediately run the checker
+        let enter_pressed = formula_response.lost_focus()
+            && columns[1].input(|inp| inp.key_pressed(egui::Key::Enter));
+        if enter_pressed && app.verify.property_enabled && app.verify.job.is_none() {
+            app.verify.run_requested = true;
+        }
         columns[1].text_edit_singleline(&mut app.verify.description);
         columns[1].checkbox(&mut app.verify.property_enabled, "Enable");
         columns[1].checkbox(&mut app.verify.show_model_text, "Show model text");
@@ -1533,7 +1553,16 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .join(" → ");
                     ui.monospace(&history);
                 }
-            });
+        });
         }
     });
+
+    // Handle deferred run request (from Enter in formula field inside columns block)
+    if app.verify.run_requested && app.verify.job.is_none() {
+        app.verify.run_requested = false;
+        if let Err(err) = app.start_model_check() {
+            app.verify.last_error = Some(err.clone());
+            app.push_log(format!("Unable to start model check: {err}"));
+        }
+    }
 }

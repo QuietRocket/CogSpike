@@ -346,6 +346,10 @@ pub struct VerifyState {
     /// Weight discretization levels (W) for discretized mode. Default 3.
     #[serde(default = "default_weight_levels")]
     pub(crate) weight_levels: u8,
+    /// Transient flag: set by the formula field on Enter, consumed by the
+    /// deferred handler after the columns block finishes.
+    #[serde(skip)]
+    pub(crate) run_requested: bool,
 }
 
 impl Default for VerifyState {
@@ -370,6 +374,7 @@ impl Default for VerifyState {
             prism_options: PrismEngineOptions::default(),
             abstraction_mode: AbstractionMode::default(),
             weight_levels: 3,
+            run_requested: false,
         }
     }
 }
