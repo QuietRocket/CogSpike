@@ -150,6 +150,7 @@ fn handle_keyboard_shortcuts(app: &mut TemplateApp, ui: &egui::Ui, ctx: &egui::C
 
 /// Draw edges with interactive clicking support for edge selection.
 /// Also positions weight label offset from the edge line for readability.
+/// Bidirectional edges are drawn as curved Bézier arcs to avoid overlap.
 #[expect(clippy::needless_pass_by_ref_mut)] // ui.interact() requires &mut self
 fn draw_edges_interactive(
     app: &mut TemplateApp,
@@ -168,6 +169,7 @@ fn draw_edges_interactive(
         .filter_map(|edge| {
             let from_pos = app.design.graph.position_of(edge.from)?;
             let to_pos = app.design.graph.position_of(edge.to)?;
+            let has_reverse = app.design.graph.has_reverse_edge(edge);
             Some((
                 edge.id,
                 edge.from,
@@ -176,6 +178,7 @@ fn draw_edges_interactive(
                 edge.is_inhibitory,
                 from_pos,
                 to_pos,
+                has_reverse,
             ))
         })
         .collect();
@@ -183,7 +186,9 @@ fn draw_edges_interactive(
     let selected_node = app.design.selected_node;
     let selected_edge = app.design.selected_edge;
 
-    for (edge_id, from_node, to_node, weight, is_inhibitory, from_pos, to_pos) in &edge_data {
+    for (edge_id, from_node, to_node, weight, is_inhibitory, from_pos, to_pos, has_reverse) in
+        &edge_data
+    {
         let from_screen = graph_to_screen(rect, *from_pos);
         let to_screen = graph_to_screen(rect, *to_pos);
 
@@ -206,16 +211,26 @@ fn draw_edges_interactive(
             color = egui::Color32::from_rgb(20, 120, 200);
         }
 
-        draw_directed_edge(painter, from_screen, to_screen, color);
+        // Determine curve offset for bidirectional edges.
+        // Both directions use the same positive offset because the perpendicular
+        // vector naturally flips with the edge direction, producing opposite curves.
+        let curve_offset = if *has_reverse {
+            BIDIRECTIONAL_CURVE_OFFSET
+        } else {
+            0.0
+        };
 
-        // Calculate perpendicular offset for label position (Feature 3)
+        let edge_midpoint = draw_directed_edge(painter, from_screen, to_screen, color, curve_offset);
+
+        // Draw weight label at the edge midpoint
         let dir = to_screen - from_screen;
         let len = dir.length();
         if len > f32::EPSILON {
             let unit = dir / len;
-            let perp = egui::vec2(-unit.y, unit.x); // Perpendicular vector
-            let offset = perp * 14.0; // 14px offset from edge line
-            let label_pos = from_screen.lerp(to_screen, 0.5) + offset;
+            let perp = egui::vec2(-unit.y, unit.x);
+            // Small extra perpendicular offset for label readability
+            let label_offset = perp * 14.0 * curve_offset.signum().max(0.5);
+            let label_pos = edge_midpoint + label_offset;
 
             painter.text(
                 label_pos,
@@ -226,10 +241,10 @@ fn draw_edges_interactive(
             );
         }
 
-        // Create an invisible hit-test rectangle along the edge for clicking
-        let mid_point = from_screen.lerp(to_screen, 0.5);
-        let hit_size = 20.0; // Hit area size
-        let hit_rect = egui::Rect::from_center_size(mid_point, egui::vec2(hit_size, hit_size));
+        // Create an invisible hit-test rectangle at the curve midpoint for clicking
+        let hit_size = 20.0;
+        let hit_rect =
+            egui::Rect::from_center_size(edge_midpoint, egui::vec2(hit_size, hit_size));
         let edge_response = ui.interact(
             hit_rect,
             ui.id().with(("edge", edge_id.0)),
@@ -244,7 +259,7 @@ fn draw_edges_interactive(
         // Show selection highlight
         if selected_edge == Some(*edge_id) {
             painter.circle_stroke(
-                mid_point,
+                edge_midpoint,
                 10.0,
                 egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 180, 0)),
             );
@@ -263,35 +278,125 @@ fn draw_edges_interactive(
     }
 }
 
+/// Perpendicular offset for curved bidirectional edges (pixels).
+const BIDIRECTIONAL_CURVE_OFFSET: f32 = 35.0;
+
+/// Evaluate a quadratic Bézier curve at parameter t.
+fn bezier_point(p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, t: f32) -> egui::Pos2 {
+    let inv = 1.0 - t;
+    egui::pos2(
+        inv * inv * p0.x + 2.0 * inv * t * p1.x + t * t * p2.x,
+        inv * inv * p0.y + 2.0 * inv * t * p1.y + t * t * p2.y,
+    )
+}
+
+/// Evaluate the tangent of a quadratic Bézier at parameter t.
+fn bezier_tangent(p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, t: f32) -> egui::Vec2 {
+    let inv = 1.0 - t;
+    egui::vec2(
+        2.0 * inv * (p1.x - p0.x) + 2.0 * t * (p2.x - p1.x),
+        2.0 * inv * (p1.y - p0.y) + 2.0 * t * (p2.y - p1.y),
+    )
+}
+
+/// Draw a directed edge, optionally curved for bidirectional pairs.
+/// Returns the visual midpoint of the edge (for label/hit-test positioning).
+/// When `curve_offset` is 0, draws a straight edge; otherwise a quadratic Bézier.
 fn draw_directed_edge(
     painter: &egui::Painter,
     from: egui::Pos2,
     to: egui::Pos2,
     color: egui::Color32,
-) {
+    curve_offset: f32,
+) -> egui::Pos2 {
     let dir = to - from;
     let len = dir.length();
     if len < f32::EPSILON {
-        return;
+        return from;
     }
     let unit = dir / len;
-
-    let arrow_tip = to - unit * NODE_RADIUS;
-    let arrow_base = arrow_tip - unit * ARROW_HEAD_LENGTH;
-    let shaft_start = from + unit * NODE_RADIUS;
-    let shaft_end = arrow_base;
-
-    painter.line_segment([shaft_start, shaft_end], egui::Stroke::new(2.0, color));
-
     let perp = egui::vec2(-unit.y, unit.x);
-    let half_width = ARROW_HEAD_WIDTH * 0.5;
-    let left = arrow_base + perp * half_width;
-    let right = arrow_base - perp * half_width;
-    painter.add(egui::Shape::convex_polygon(
-        vec![arrow_tip, left, right],
-        color,
-        egui::Stroke::NONE,
-    ));
+
+    if curve_offset.abs() < f32::EPSILON {
+        // Straight edge (original behavior)
+        let arrow_tip = to - unit * NODE_RADIUS;
+        let arrow_base = arrow_tip - unit * ARROW_HEAD_LENGTH;
+        let shaft_start = from + unit * NODE_RADIUS;
+
+        painter.line_segment([shaft_start, arrow_base], egui::Stroke::new(2.0, color));
+
+        let half_width = ARROW_HEAD_WIDTH * 0.5;
+        let left = arrow_base + perp * half_width;
+        let right = arrow_base - perp * half_width;
+        painter.add(egui::Shape::convex_polygon(
+            vec![arrow_tip, left, right],
+            color,
+            egui::Stroke::NONE,
+        ));
+
+        shaft_start.lerp(arrow_tip, 0.5)
+    } else {
+        // Curved Bézier edge
+        let control = from.lerp(to, 0.5) + perp * curve_offset;
+
+        // Find the parameter where the curve enters the destination node
+        // For a quadratic Bézier, compute the point slightly before NODE_RADIUS
+        // from the `to` center. We approximate by using the tangent at t=1.
+        let tangent_at_end = bezier_tangent(from, control, to, 1.0);
+        let tangent_len = tangent_at_end.length();
+        if tangent_len < f32::EPSILON {
+            return from;
+        }
+        let end_unit = tangent_at_end / tangent_len;
+
+        let arrow_tip = to - end_unit * NODE_RADIUS;
+        let arrow_base = arrow_tip - end_unit * ARROW_HEAD_LENGTH;
+
+        // Start the curve from the source node's edge
+        let tangent_at_start = bezier_tangent(from, control, to, 0.0);
+        let start_len = tangent_at_start.length();
+        let start_unit = if start_len > f32::EPSILON {
+            tangent_at_start / start_len
+        } else {
+            unit
+        };
+        let shaft_start = from + start_unit * NODE_RADIUS;
+
+        // Adjust control point to match shortened endpoints
+        let adj_control = shaft_start.lerp(arrow_base, 0.5) + perp * curve_offset;
+
+        // Sample the Bézier curve into line segments
+        let segments = 20;
+        let mut prev = shaft_start;
+        for i in 1..=segments {
+            let t = i as f32 / segments as f32;
+            let pt = bezier_point(shaft_start, adj_control, arrow_base, t);
+            painter.line_segment([prev, pt], egui::Stroke::new(2.0, color));
+            prev = pt;
+        }
+
+        // Arrowhead aligned with curve tangent at the end
+        let end_tangent = bezier_tangent(shaft_start, adj_control, arrow_base, 1.0);
+        let end_tangent_len = end_tangent.length();
+        let arrow_unit = if end_tangent_len > f32::EPSILON {
+            end_tangent / end_tangent_len
+        } else {
+            end_unit
+        };
+        let arrow_perp = egui::vec2(-arrow_unit.y, arrow_unit.x);
+        let half_width = ARROW_HEAD_WIDTH * 0.5;
+        let tip = arrow_base + arrow_unit * ARROW_HEAD_LENGTH;
+        let left = arrow_base + arrow_perp * half_width;
+        let right = arrow_base - arrow_perp * half_width;
+        painter.add(egui::Shape::convex_polygon(
+            vec![tip, left, right],
+            color,
+            egui::Stroke::NONE,
+        ));
+
+        // Return the visual midpoint of the curve
+        bezier_point(shaft_start, adj_control, arrow_base, 0.5)
+    }
 }
 
 #[expect(clippy::needless_pass_by_ref_mut)] // ui.interact() requires &mut self

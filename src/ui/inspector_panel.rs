@@ -235,6 +235,29 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             });
             ui.label(format!("Kind: {}", node.kind.label()));
 
+            // Role selector
+            ui.horizontal(|ui| {
+                ui.label("Role");
+                egui::ComboBox::from_id_salt(format!("node_role_{}", node_id.0))
+                    .selected_text(node.role.label())
+                    .show_ui(ui, |ui| {
+                        for role in crate::snn::graph::NodeRole::ALL {
+                            ui.selectable_value(&mut node.role, role, role.label());
+                        }
+                    });
+                // Resolved role hint for Auto
+                if node.role == crate::snn::graph::NodeRole::Auto {
+                    let resolved = if is_input_node {
+                        "→ Input"
+                    } else if is_output_node {
+                        "→ Output"
+                    } else {
+                        "→ Regular"
+                    };
+                    ui.weak(resolved);
+                }
+            });
+
             // Show per-neuron settings (only dt and thresholds now)
             ui.collapsing("Per-Neuron Settings", |ui| {
                 egui::Grid::new("neuron_params_grid")

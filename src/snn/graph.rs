@@ -27,6 +27,35 @@ impl NodeKind {
     }
 }
 
+/// Explicit role designation for a node.
+///
+/// Replaces the fragile topology-based input/output detection. `Auto` preserves
+/// backward compatibility by falling back to topology checks.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NodeRole {
+    /// Infer role from topology (no incoming edges → input, no outgoing → output).
+    #[default]
+    Auto,
+    /// Explicit input — receives spike patterns from generators.
+    Input,
+    /// Explicit output — can serve as a learning/verification target.
+    Output,
+}
+
+impl NodeRole {
+    /// Human-readable label for UI display.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Input => "Input",
+            Self::Output => "Output",
+        }
+    }
+
+    /// All available roles for combo box display.
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Input, Self::Output];
+}
+
 /// Per-neuron parameters that vary between neurons.
 ///
 /// Global parameters like threshold, leak rate, and refractory periods
@@ -54,6 +83,10 @@ pub struct Node {
     pub label: String,
     pub kind: NodeKind,
     pub params: NeuronParams,
+    /// Explicit role designation (Input/Output/Auto).
+    /// `Auto` falls back to topology-based detection for backward compatibility.
+    #[serde(default)]
+    pub role: NodeRole,
     /// Optional learning target probability (0.0 to 1.0).
     /// When set, this node becomes a learning target.
     #[serde(default)]
@@ -62,7 +95,7 @@ pub struct Node {
     #[serde(default)]
     pub target_formula: Option<String>,
     /// Input configuration for input neurons (generators, patterns).
-    /// Only meaningful when this is an input neuron (no incoming edges).
+    /// Only meaningful when this node's effective role is Input.
     #[serde(default)]
     pub input_config: Option<InputNeuronConfig>,
     pub position: [f32; 2],
@@ -138,6 +171,7 @@ impl SnnGraph {
             label: label.into(),
             kind,
             params: NeuronParams::default(),
+            role: NodeRole::default(),
             target_probability: None,
             target_formula: None,
             input_config: None,
@@ -208,20 +242,20 @@ impl SnnGraph {
         self.node(id).map(|n| n.position)
     }
 
-    /// Returns nodes with no incoming edges (root nodes / input generators).
+    /// Returns all nodes whose effective role is Input.
     pub fn input_neurons(&self) -> Vec<NodeId> {
         self.nodes
             .iter()
-            .filter(|n| !self.edges.iter().any(|e| e.to == n.id))
+            .filter(|n| self.is_input(n.id))
             .map(|n| n.id)
             .collect()
     }
 
-    /// Returns nodes with no outgoing edges (leaf nodes / outputs).
+    /// Returns all nodes whose effective role is Output.
     pub fn output_neurons(&self) -> Vec<NodeId> {
         self.nodes
             .iter()
-            .filter(|n| !self.edges.iter().any(|e| e.from == n.id))
+            .filter(|n| self.is_output(n.id))
             .map(|n| n.id)
             .collect()
     }
@@ -236,19 +270,49 @@ impl SnnGraph {
         self.edges.iter().filter(|e| e.from == id).collect()
     }
 
-    /// Check if node is topologically an input (no incoming edges).
+    /// Check if a node's effective role is Input.
+    ///
+    /// Respects explicit `NodeRole` when set; falls back to topology
+    /// detection (no incoming edges) for `NodeRole::Auto`.
     pub fn is_input(&self, id: NodeId) -> bool {
-        self.node(id).is_some() && !self.edges.iter().any(|e| e.to == id)
+        match self.node(id) {
+            Some(node) => match node.role {
+                NodeRole::Input => true,
+                NodeRole::Output => false,
+                NodeRole::Auto => !self.edges.iter().any(|e| e.to == id),
+            },
+            None => false,
+        }
     }
 
-    /// Check if node is topologically an output (no outgoing edges).
+    /// Check if a node's effective role is Output.
+    ///
+    /// Respects explicit `NodeRole` when set; falls back to topology
+    /// detection (no outgoing edges) for `NodeRole::Auto`.
     pub fn is_output(&self, id: NodeId) -> bool {
-        self.node(id).is_some() && !self.edges.iter().any(|e| e.from == id)
+        match self.node(id) {
+            Some(node) => match node.role {
+                NodeRole::Output => true,
+                NodeRole::Input => false,
+                NodeRole::Auto => !self.edges.iter().any(|e| e.from == id),
+            },
+            None => false,
+        }
     }
 
-    /// Check if a node is an input generator (topologically an input).
+    /// Check if a node is an input generator (effective role is Input).
     pub fn is_input_generator(&self, id: NodeId) -> bool {
         self.is_input(id)
+    }
+
+    /// Check if a directed edge from `from` to `to` exists.
+    pub fn has_edge(&self, from: NodeId, to: NodeId) -> bool {
+        self.edges.iter().any(|e| e.from == from && e.to == to)
+    }
+
+    /// Check if the reverse of the given edge also exists (bidirectional pair).
+    pub fn has_reverse_edge(&self, edge: &Edge) -> bool {
+        self.has_edge(edge.to, edge.from)
     }
 
     /// Returns all nodes that are learning targets (have `target_probability` set).
@@ -311,5 +375,99 @@ impl SnnGraph {
     /// Randomize all edge weight magnitudes within [0, range].
     pub fn randomize_weights_symmetric(&mut self, range: u8) {
         self.randomize_weights(0, range);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two_node_graph() -> (SnnGraph, NodeId, NodeId) {
+        let mut g = SnnGraph::default();
+        let a = g.add_node("A", NodeKind::Neuron, [0.0, 0.0]);
+        let b = g.add_node("B", NodeKind::Neuron, [100.0, 0.0]);
+        (g, a, b)
+    }
+
+    #[test]
+    fn test_has_edge() {
+        let (mut g, a, b) = two_node_graph();
+        assert!(!g.has_edge(a, b));
+        g.add_edge(a, b, 50);
+        assert!(g.has_edge(a, b));
+        assert!(!g.has_edge(b, a));
+    }
+
+    #[test]
+    fn test_has_reverse_edge() {
+        let (mut g, a, b) = two_node_graph();
+        g.add_edge(a, b, 50);
+        let edge_ab = g.edges.iter().find(|e| e.from == a && e.to == b).unwrap();
+        assert!(!g.has_reverse_edge(edge_ab));
+
+        g.add_edge(b, a, 50);
+        let edge_ab = g.edges.iter().find(|e| e.from == a && e.to == b).unwrap();
+        assert!(g.has_reverse_edge(edge_ab));
+    }
+
+    #[test]
+    fn test_node_role_auto_fallback() {
+        let (mut g, a, b) = two_node_graph();
+        // No edges: both are inputs (no incoming) and outputs (no outgoing) under Auto
+        assert!(g.is_input(a));
+        assert!(g.is_output(a));
+
+        g.add_edge(a, b, 50);
+        // A has outgoing only: input=true, output=false
+        assert!(g.is_input(a));
+        assert!(!g.is_output(a));
+        // B has incoming only: input=false, output=true
+        assert!(!g.is_input(b));
+        assert!(g.is_output(b));
+    }
+
+    #[test]
+    fn test_node_role_explicit_input() {
+        let (mut g, a, b) = two_node_graph();
+        g.add_edge(b, a, 50); // A gets an incoming edge
+
+        // Under Auto, A is not an input (has incoming)
+        assert!(!g.is_input(a));
+
+        // Set explicit Input role
+        g.node_mut(a).unwrap().role = NodeRole::Input;
+        assert!(g.is_input(a));
+        assert!(!g.is_output(a)); // Input role excludes Output
+    }
+
+    #[test]
+    fn test_node_role_explicit_output() {
+        let (mut g, a, b) = two_node_graph();
+        g.add_edge(a, b, 50); // A has an outgoing edge
+
+        // Under Auto, A is not an output (has outgoing)
+        assert!(!g.is_output(a));
+
+        // Set explicit Output role
+        g.node_mut(a).unwrap().role = NodeRole::Output;
+        assert!(g.is_output(a));
+        assert!(!g.is_input(a)); // Output role excludes Input
+    }
+
+    #[test]
+    fn test_input_output_neurons_respect_roles() {
+        let (mut g, a, b) = two_node_graph();
+        let c = g.add_node("C", NodeKind::Neuron, [200.0, 0.0]);
+        g.add_edge(a, b, 50);
+        g.add_edge(b, c, 50);
+        g.add_edge(c, b, 30); // bidirectional B <-> C
+
+        // Under Auto: A=input, C=not output (has outgoing to B)
+        assert_eq!(g.input_neurons(), vec![a]);
+        assert!(!g.is_output(c));
+
+        // Mark C as Output explicitly
+        g.node_mut(c).unwrap().role = NodeRole::Output;
+        assert!(g.output_neurons().contains(&c));
     }
 }
