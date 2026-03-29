@@ -84,8 +84,8 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
         writeln!(out).ok();
     }
 
-    // Transfer modules (synapse spike propagation)
-    write_transfer_modules(&mut out, graph);
+    // Transfer modules removed — neurons read y{source} directly for
+    // 1-tick synaptic delay isomorphic with simulation engine.
     writeln!(out).ok();
 
     // Rewards for spike counting
@@ -190,10 +190,15 @@ fn write_threshold_formulas(out: &mut String, config: &PrismGenConfig) {
     let m = &config.model;
     let levels = m.threshold_levels.clamp(1, 10);
     writeln!(out, "// Firing probability thresholds ({levels} levels)").ok();
+    writeln!(
+        out,
+        "// Isomorphic with simulation: threshold_i = (i * P_rth) / levels"
+    )
+    .ok();
     for i in 1..=levels {
-        // Generate thresholds matching simulation.rs generate_thresholds()
+        // Exact match of simulation.rs generate_thresholds(): (i * p_rth) / levels
         let th = (i as u32 * m.p_rth as u32) / levels as u32;
-        writeln!(out, "formula threshold{i} = {th} * P_rth / 100;").ok();
+        writeln!(out, "formula threshold{i} = {th};").ok();
     }
 }
 
@@ -224,19 +229,16 @@ fn write_weight_constants(out: &mut String, graph: &SnnGraph) {
     }
 }
 
-fn write_transfer_formulas(out: &mut String, graph: &SnnGraph) {
-    writeln!(out, "// Transfer variables for spike propagation").ok();
-    for edge in &graph.edges {
-        if !graph.is_input(edge.from) {
-            // Neuron-to-neuron edges need transfer variables
-            writeln!(
-                out,
-                "// z{}_{} defined in transfer module",
-                edge.from.0, edge.to.0
-            )
-            .ok();
-        }
-    }
+fn write_transfer_formulas(out: &mut String, _graph: &SnnGraph) {
+    // Transfer modules removed for isomorphism with simulation.
+    // Neuron-to-neuron spike propagation now reads y{source} directly
+    // in the newPotential formula, giving 1-tick synaptic delay matching
+    // the simulation engine's Phase 4 → Phase 2 transfer semantics.
+    writeln!(
+        out,
+        "// Spike propagation: neurons read y(source) directly (1-tick delay)"
+    )
+    .ok();
 }
 
 fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismGenConfig) {
@@ -276,10 +278,10 @@ fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismG
                     edge.from.0, edge.to.0, edge.from.0
                 ));
             } else {
-                // Neuron spike contribution (via transfer variable)
+                // Neuron spike contribution (read y directly — 1-tick delay)
                 terms.push(format!(
-                    "weight_n{}_{} * z{}_{}",
-                    edge.from.0, edge.to.0, edge.from.0, edge.to.0
+                    "weight_n{}_{} * y{}",
+                    edge.from.0, edge.to.0, edge.from.0
                 ));
             }
         }
@@ -770,25 +772,10 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
     // Generate probability step size based on configured levels
     let step = 1.0 / levels as f64;
 
-    // Normal period - spike reset (during tick after spike was set)
-    // Note: We handle spike reset during [tick] to avoid deadlock with Inputs module
-    writeln!(out, "  // Normal period - spike reset").ok();
-    if model.enable_arp {
-        writeln!(
-            out,
-            "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
-        ).ok();
-    } else {
-        // No ARP: spike and stay in normal state (no state variable to guard)
-        writeln!(out, "  [tick] y{n} = 1 -> (p{n}' = P_reset) & (y{n}' = 0);").ok();
-    }
-
-    // Normal period - probabilistic transitions based on thresholds
-    writeln!(
-        out,
-        "  // Normal period - probabilistic firing ({levels} levels)"
-    )
-    .ok();
+    // ── Isomorphic firing: guards check newPotential (post-accumulation) ──
+    // Matches simulation.rs handle_normal_state() which checks new_potential
+    // against thresholds. Fire branch sets p' = P_reset (no dead reset tick).
+    // y is set purely as output; no y=1 reset guard needed.
 
     // State guard prefix - only needed if refractory periods are enabled
     let state_guard = if model.enable_arp || model.enable_rrp {
@@ -797,10 +784,16 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         String::new()
     };
 
+    writeln!(
+        out,
+        "  // Normal period - firing on newPotential ({levels} levels)"
+    )
+    .ok();
+
     // Below threshold1: no spike
     writeln!(
         out,
-        "  [tick] {state_guard}y{n} = 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
+        "  [tick] {state_guard}newPotential_{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n});"
     ).ok();
 
     // Threshold-based probabilistic firing (variable levels)
@@ -810,15 +803,15 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         let spike_prob = prob;
         writeln!(
             out,
-            "  [tick] {state_guard}y{n} = 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1);",
+            "  [tick] {state_guard}newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset);",
             i + 1, i + 2, no_spike_prob, spike_prob
         ).ok();
     }
 
-    // Above top threshold: always spike
+    // Above top threshold: always spike (fire + reset in same transition)
     writeln!(
         out,
-        "  [tick] {state_guard}y{n} = 0 & p{n} > threshold{levels} -> 1.0:(y{n}' = 1);"
+        "  [tick] {state_guard}newPotential_{n} > threshold{levels} -> 1.0:(y{n}' = 1) & (p{n}' = P_reset);"
     )
     .ok();
 
@@ -857,19 +850,14 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
 
         writeln!(
             out,
-            "  // Relative refractory period (alpha-scaled probabilities)"
+            "  // Relative refractory period (alpha-scaled, newPotential guards)"
         )
         .ok();
-        // RRP spike reset (during tick after spike was set)
-        writeln!(
-            out,
-            "  [tick] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = P_reset) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
-        ).ok();
 
-        // RRP probabilistic firing (alpha-scaled)
+        // RRP probabilistic firing (alpha-scaled) — guards on newPotential
         writeln!(
             out,
-            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
+            "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} <= threshold1 -> (y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1);"
         ).ok();
 
         for i in 0..(levels - 1) {
@@ -878,57 +866,28 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
             let no_spike_prob = 1.0 - spike_prob;
             writeln!(
                 out,
-                "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > threshold{} & p{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1);",
+                "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} > threshold{} & newPotential_{n} <= threshold{} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
                 i + 1, i + 2, no_spike_prob, spike_prob
             ).ok();
         }
 
-        // RRP above max threshold: spike with alpha-scaled probability (alpha * 1.0 = alpha)
+        // RRP above max threshold: spike with alpha-scaled probability
         let max_spike_prob = alpha;
         let max_no_spike_prob = 1.0 - alpha;
         writeln!(
             out,
-            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > threshold{levels} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1);",
+            "  [tick] s{n} = 2 & rref{n} > 0 & newPotential_{n} > threshold{levels} -> {:.4}:(y{n}' = 0) & (p{n}' = newPotential_{n}) & (rref{n}' = rref{n} - 1) + {:.4}:(y{n}' = 1) & (p{n}' = P_reset) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
             max_no_spike_prob, max_spike_prob
         ).ok();
 
         // RRP ended - return to normal
         writeln!(
             out,
-            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
+            "  [tick] s{n} = 2 & rref{n} = 0 -> (p{n}' = P_reset) & (y{n}' = 0) & (s{n}' = 0);"
         ).ok();
     }
 
     writeln!(out, "endmodule").ok();
-}
-
-fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
-    writeln!(out, "// Synapse transfer modules (spike propagation)").ok();
-    writeln!(
-        out,
-        "// Transfer variables sample source neuron's y output during tick"
-    )
-    .ok();
-
-    for edge in &graph.edges {
-        // Skip edges from Input nodes (they don't need transfer modules)
-        if graph.is_input(edge.from) {
-            continue;
-        }
-
-        // Transfer module captures source neuron's spike state (y) during each tick.
-        // This replaces the previous [spike] action to avoid synchronization deadlocks.
-        writeln!(out, "module Transfer{}_{}", edge.from.0, edge.to.0).ok();
-        writeln!(out, "  z{}_{} : [0..1] init 0;", edge.from.0, edge.to.0).ok();
-        writeln!(
-            out,
-            "  [tick] true -> (z{}_{}' = y{});",
-            edge.from.0, edge.to.0, edge.from.0
-        )
-        .ok();
-        writeln!(out, "endmodule").ok();
-        writeln!(out).ok();
-    }
 }
 
 fn write_rewards(out: &mut String, graph: &SnnGraph) {
