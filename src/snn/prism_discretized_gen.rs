@@ -69,8 +69,7 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
     write_potential_formulas(&mut out, graph, config, t_d, lambda_d);
     writeln!(out).ok();
 
-    // Transfer comments
-    write_transfer_comments(&mut out, graph);
+    // Transfer modules removed — neurons read y{source} directly
     writeln!(out).ok();
 
     // Feasibility analysis
@@ -90,8 +89,8 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
         writeln!(out).ok();
     }
 
-    // Transfer modules
-    write_transfer_modules(&mut out, graph);
+    // Transfer modules removed — neurons read y{source} directly for
+    // 1-tick synaptic delay isomorphic with simulation engine.
     writeln!(out).ok();
 
     // Rewards
@@ -245,10 +244,11 @@ fn write_contribution_formulas(
                 } else {
                     "W_n"
                 };
+                // Read y directly for 1-tick synaptic delay (isomorphic with simulation)
                 let spike_var = if graph.is_input(e.from) {
                     format!("x{}", e.from.0)
                 } else {
-                    format!("z{}_{}", e.from.0, e.to.0)
+                    format!("y{}", e.from.0)
                 };
                 format!("{prefix}{}_{} * {spike_var}", e.from.0, e.to.0)
             })
@@ -289,19 +289,6 @@ fn write_potential_formulas(
     }
 }
 
-fn write_transfer_comments(out: &mut String, graph: &SnnGraph) {
-    writeln!(out, "// Transfer variables for spike propagation").ok();
-    for edge in &graph.edges {
-        if !graph.is_input(edge.from) {
-            writeln!(
-                out,
-                "// z{}_{} defined in transfer module",
-                edge.from.0, edge.to.0
-            )
-            .ok();
-        }
-    }
-}
 
 fn write_feasibility_analysis(
     out: &mut String,
@@ -520,29 +507,17 @@ fn write_discretized_neuron_module(
         String::new()
     };
 
-    // Spike reset transition
-    writeln!(out, "  // Spike reset").ok();
-    if model.enable_arp {
-        writeln!(
-            out,
-            "  [tick] s{n} = 0 & y{n} = 1 -> (p{n}' = 0) & (aref{n}' = ARP) & (y{n}' = 0) & (s{n}' = 1);"
-        )
-        .ok();
-    } else {
-        writeln!(out, "  [tick] y{n} = 1 -> (p{n}' = 0) & (y{n}' = 0);").ok();
-    }
+    // ── Isomorphic firing: guards check newP (post-accumulation) ──
+    // Matches simulation.rs handle_normal_state() semantics.
+    // Fire branch sets p' = 0 (no dead reset tick).
 
-    writeln!(out).ok();
     writeln!(
         out,
-        "  // Normal period - probabilistic firing by threshold level"
+        "  // Normal period - firing on newP ({k} levels, no reset tick)"
     )
     .ok();
 
     // Precompute threshold boundaries to ensure complete integer coverage.
-    // boundaries[j] = floor(j * T_d / K) for j=0..K-1, boundaries[K] = T_d.
-    // This guarantees that newP = T_d is covered by Level K-1, and
-    // newP > T_d by Level K (certain fire).
     let step = 1.0 / k as f64;
     let boundaries: Vec<i32> = (0..=k)
         .map(|j| {
@@ -563,7 +538,7 @@ fn write_discretized_neuron_module(
     .ok();
     writeln!(
         out,
-        "  [tick] {state_guard}y{n} = 0 & newP_{n} <= {} -> (y{n}' = 0) & (p{n}' = newP_{n});",
+        "  [tick] {state_guard}newP_{n} <= {} -> (y{n}' = 0) & (p{n}' = newP_{n});",
         boundaries[1]
     )
     .ok();
@@ -592,7 +567,7 @@ fn write_discretized_neuron_module(
         .ok();
         writeln!(
             out,
-            "  [tick] {state_guard}y{n} = 0 & newP_{n} > {lower} & newP_{n} <= {upper} -> {:.6}:(y{n}' = 1) & (p{n}' = 0) + {:.6}:(y{n}' = 0) & (p{n}' = newP_{n});",
+            "  [tick] {state_guard}newP_{n} > {lower} & newP_{n} <= {upper} -> {:.6}:(y{n}' = 1) & (p{n}' = 0) + {:.6}:(y{n}' = 0) & (p{n}' = newP_{n});",
             fire_prob, no_fire_prob
         )
         .ok();
@@ -602,7 +577,7 @@ fn write_discretized_neuron_module(
     writeln!(out, "  // Level {k}: newP_{n} > {t_d} -> certain fire").ok();
     writeln!(
         out,
-        "  [tick] {state_guard}y{n} = 0 & newP_{n} > {t_d} -> 1.0:(y{n}' = 1) & (p{n}' = 0);"
+        "  [tick] {state_guard}newP_{n} > {t_d} -> 1.0:(y{n}' = 1) & (p{n}' = 0);"
     )
     .ok();
 
@@ -637,16 +612,9 @@ fn write_discretized_neuron_module(
     if model.enable_arp && model.enable_rrp {
         let alpha = model.alpha as f64 / 100.0;
 
-        writeln!(out, "  // Relative refractory period (alpha-scaled)").ok();
+        writeln!(out, "  // Relative refractory period (alpha-scaled, newP guards)").ok();
 
-        // RRP spike reset
-        writeln!(
-            out,
-            "  [tick] s{n} = 2 & y{n} = 1 & rref{n} > 0 -> (p{n}' = 0) & (aref{n}' = ARP) & (y{n}' = 0) & (rref{n}' = 0) & (s{n}' = 1);"
-        )
-        .ok();
-
-        // RRP probabilistic firing (alpha-scaled) — using precomputed boundaries
+        // RRP probabilistic firing (alpha-scaled) — guards on newP
         for j in 0..=k {
             let base_prob = if j == 0 {
                 0.0
@@ -659,33 +627,33 @@ fn write_discretized_neuron_module(
             let no_fire_prob = 1.0 - fire_prob;
 
             if j == 0 {
-                // Lowest level: p <= boundaries[1]
+                // Lowest level: newP <= boundaries[1]
                 if fire_prob.abs() < 1e-9 {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= {} -> (y{n}' = 0) & (rref{n}' = rref{n} - 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} <= {} -> (y{n}' = 0) & (p{n}' = newP_{n}) & (rref{n}' = rref{n} - 1);",
                         boundaries[1]
                     ).ok();
                 } else {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} <= {} -> {:.6}:(y{n}' = 0) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} <= {} -> {:.6}:(y{n}' = 0) & (p{n}' = newP_{n}) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1) & (p{n}' = 0) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
                         boundaries[1], no_fire_prob, fire_prob
                     ).ok();
                 }
             } else if j == k {
-                // Highest level: p > boundaries[K-1] (= T_d)
+                // Highest level: newP > T_d
                 if (fire_prob - 1.0).abs() < 1e-9 {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} -> (y{n}' = 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} > {} -> (y{n}' = 1) & (p{n}' = 0) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
                         boundaries[k]
                     )
                     .ok();
                 } else {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} -> {:.6}:(y{n}' = 0) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} > {} -> {:.6}:(y{n}' = 0) & (p{n}' = newP_{n}) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1) & (p{n}' = 0) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
                         boundaries[k], no_fire_prob, fire_prob
                     ).ok();
                 }
@@ -699,13 +667,13 @@ fn write_discretized_neuron_module(
                 if fire_prob.abs() < 1e-9 {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} & p{n} <= {} -> (y{n}' = 0) & (rref{n}' = rref{n} - 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} > {} & newP_{n} <= {} -> (y{n}' = 0) & (p{n}' = newP_{n}) & (rref{n}' = rref{n} - 1);",
                         lower, upper
                     ).ok();
                 } else {
                     writeln!(
                         out,
-                        "  [tick] s{n} = 2 & y{n} = 0 & rref{n} > 0 & p{n} > {} & p{n} <= {} -> {:.6}:(y{n}' = 0) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1);",
+                        "  [tick] s{n} = 2 & rref{n} > 0 & newP_{n} > {} & newP_{n} <= {} -> {:.6}:(y{n}' = 0) & (p{n}' = newP_{n}) & (rref{n}' = rref{n} - 1) + {:.6}:(y{n}' = 1) & (p{n}' = 0) & (aref{n}' = ARP) & (rref{n}' = 0) & (s{n}' = 1);",
                         lower, upper, no_fire_prob, fire_prob
                     ).ok();
                 }
@@ -715,7 +683,7 @@ fn write_discretized_neuron_module(
         // RRP ended
         writeln!(
             out,
-            "  [tick] s{n} = 2 & y{n} = 0 & rref{n} = 0 -> (p{n}' = 0) & (y{n}' = 0) & (s{n}' = 0);"
+            "  [tick] s{n} = 2 & rref{n} = 0 -> (p{n}' = 0) & (y{n}' = 0) & (s{n}' = 0);"
         )
         .ok();
     }
@@ -726,27 +694,6 @@ fn write_discretized_neuron_module(
 // ============================================================================
 // Transfer, Rewards, Labels (unchanged from old generator)
 // ============================================================================
-
-fn write_transfer_modules(out: &mut String, graph: &SnnGraph) {
-    writeln!(out, "// Synapse transfer modules (spike propagation)").ok();
-
-    for edge in &graph.edges {
-        if graph.is_input(edge.from) {
-            continue;
-        }
-
-        writeln!(out, "module Transfer{}_{}", edge.from.0, edge.to.0).ok();
-        writeln!(out, "  z{}_{} : [0..1] init 0;", edge.from.0, edge.to.0).ok();
-        writeln!(
-            out,
-            "  [tick] true -> (z{}_{}' = y{});",
-            edge.from.0, edge.to.0, edge.from.0
-        )
-        .ok();
-        writeln!(out, "endmodule").ok();
-        writeln!(out).ok();
-    }
-}
 
 fn write_rewards(out: &mut String, graph: &SnnGraph) {
     writeln!(out, "// Spike count rewards").ok();
