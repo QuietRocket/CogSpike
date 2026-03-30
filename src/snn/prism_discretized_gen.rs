@@ -1,18 +1,19 @@
 //! Discretized PRISM model generator for Spiking Neural Networks.
 //!
 //! Generates DTMC models using the paper's weight discretization approach (§7).
-//! Instead of tracking potentials in the raw domain [0..500], weights are
-//! discretized to [-W, W] and potentials tracked in [0..T_d+E], giving a
+//! Instead of tracking potentials in the raw domain [-500..500], weights are
+//! discretized to [-W, W] and potentials tracked in [P_MIN..P_MAX], giving a
 //! ~50-170x state reduction per neuron while preserving ALL PCTL properties.
 //!
 //! **Key formulas from the paper:**
 //! - Weight discretization: `δ_W(w) = ⌊w · W / w_max⌉` (§3)
 //! - Threshold calibration: `T_d = ⌈T · W / w_max⌉` (§3.2)
-//! - Additive leak: `λ_d = -max(1, ⌊ℓ · T_d⌋)` (§4.2)
-//! - Potential update: `p' = max(0, min(P_MAX, p + contrib + λ_d))` (§7)
+//! - Multiplicative leak: `floor(r × p)` — isomorphic with simulation engine (§4.2)
+//! - Potential update: `p' = max(P_MIN, min(P_MAX, floor(r × p) + contrib))` (§7)
 
 use crate::snn::discretization::{
-    Feasibility, check_feasibility, discretize_weight, discretized_leak, discretized_threshold,
+    Feasibility, check_feasibility, compute_discretized_p_min, discretize_weight,
+    discretized_threshold,
 };
 use crate::snn::graph::{Node, SnnGraph};
 use crate::snn::prism_gen::{build_name_map, NameMap, PrismGenConfig};
@@ -29,8 +30,7 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
     let wl = config.weight_levels.clamp(1, 10);
     let k = m.threshold_levels.clamp(1, 10) as usize;
     let t_d = discretized_threshold(m.p_rth, wl);
-    let leak_factor = 1.0 - (m.leak_r as f64 / 100.0);
-    let lambda_d = discretized_leak(leak_factor, t_d);
+    let retention_rate = m.leak_r as f64 / 100.0;
     let names = build_name_map(graph);
 
     // Header
@@ -41,7 +41,7 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
     .ok();
     writeln!(
         out,
-        "// Weight discretization: WL={wl}, T_d={t_d}, lambda_d={lambda_d}"
+        "// Weight discretization: WL={wl}, T_d={t_d}, r={retention_rate}"
     )
     .ok();
     writeln!(
@@ -55,7 +55,7 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
     writeln!(out, "dtmc\n").ok();
 
     // Global constants
-    write_discretized_constants(&mut out, graph, config, t_d, lambda_d, &names);
+    write_discretized_constants(&mut out, graph, config, t_d, retention_rate, &names);
     writeln!(out).ok();
 
     // Discretized weight constants
@@ -66,15 +66,15 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
     write_contribution_formulas(&mut out, graph, config, t_d, &names);
     writeln!(out).ok();
 
-    // Potential update formulas
-    write_potential_formulas(&mut out, graph, config, t_d, lambda_d, &names);
+    // Potential update formulas (multiplicative leak, allows negatives)
+    write_potential_formulas(&mut out, graph, config, t_d, &names);
     writeln!(out).ok();
 
     // Transfer modules removed
     writeln!(out).ok();
 
     // Feasibility analysis
-    write_feasibility_analysis(&mut out, graph, config, t_d, lambda_d, &names);
+    write_feasibility_analysis(&mut out, graph, config, t_d, retention_rate, &names);
     writeln!(out).ok();
 
     // Input module
@@ -86,7 +86,7 @@ pub fn generate_discretized_model(graph: &SnnGraph, config: &PrismGenConfig) -> 
         if graph.is_input(node.id) {
             continue;
         }
-        write_discretized_neuron_module(&mut out, node, graph, config, t_d, lambda_d, &names);
+        write_discretized_neuron_module(&mut out, node, graph, config, t_d, &names);
         writeln!(out).ok();
     }
 
@@ -113,7 +113,7 @@ fn write_discretized_constants(
     graph: &SnnGraph,
     config: &PrismGenConfig,
     t_d: i32,
-    lambda_d: i32,
+    retention_rate: f64,
     names: &NameMap,
 ) {
     let m = &config.model;
@@ -123,7 +123,7 @@ fn write_discretized_constants(
     writeln!(out, "// Discretization parameters (paper sections 3-4)").ok();
     writeln!(out, "const int WL = {};       // Weight discretization levels", wl).ok();
     writeln!(out, "const int T_d = {};      // Discretized threshold (paper section 3.2)", t_d).ok();
-    writeln!(out, "const int lambda_d = {}; // Additive leak factor (paper section 4.2)", lambda_d).ok();
+    writeln!(out, "const double r = {};     // Retention rate — multiplicative leak (paper section 4.2)", retention_rate).ok();
     writeln!(out, "const int K = {};        // Number of threshold levels", k).ok();
 
     if m.enable_arp {
@@ -142,9 +142,15 @@ fn write_discretized_constants(
         }
         let name = &names[&node.id];
         let p_max = compute_p_max(node, graph, config, t_d);
+        let p_min = compute_p_min(node, graph, config);
         writeln!(
             out,
             "const int P_MAX_{name} = {p_max};  // T_d + max_excitatory_input"
+        )
+        .ok();
+        writeln!(
+            out,
+            "const int P_MIN_{name} = {p_min};  // sum of inhibitory inputs"
         )
         .ok();
     }
@@ -166,6 +172,19 @@ fn compute_p_max(node: &Node, graph: &SnnGraph, config: &PrismGenConfig, t_d: i3
         .sum();
     // Ensure P_MAX is at least T_d (even with no excitatory inputs)
     t_d.max(t_d + max_excitatory)
+}
+
+/// Compute the minimum potential for a neuron in the discretized domain.
+/// P_MIN = sum of negative (inhibitory) discretized weights.
+/// Returns 0 if no inhibitory inputs.
+fn compute_p_min(node: &Node, graph: &SnnGraph, config: &PrismGenConfig) -> i32 {
+    let wl = config.weight_levels.clamp(1, 10);
+    let incoming = graph.incoming_edges(node.id);
+    let all_weights: Vec<i32> = incoming
+        .iter()
+        .map(|e| discretize_weight(e.signed_weight(), wl))
+        .collect();
+    compute_discretized_p_min(&all_weights)
 }
 
 fn write_discretized_weights(out: &mut String, graph: &SnnGraph, wl: u8, names: &NameMap) {
@@ -232,11 +251,10 @@ fn write_potential_formulas(
     graph: &SnnGraph,
     _config: &PrismGenConfig,
     _t_d: i32,
-    _lambda_d: i32,
     names: &NameMap,
 ) {
-    writeln!(out, "// Potential update with additive leak (paper section 4.2)").ok();
-    writeln!(out, "// newP_n = max(0, min(P_MAX_n, p_n + contrib_n + lambda_d))").ok();
+    writeln!(out, "// Potential update with multiplicative leak (isomorphic with simulation engine)").ok();
+    writeln!(out, "// newP_n = max(P_MIN_n, min(P_MAX_n, floor(r * p_n) + contrib_n))").ok();
 
     for node in &graph.nodes {
         if graph.is_input(node.id) {
@@ -245,7 +263,7 @@ fn write_potential_formulas(
         let n = &names[&node.id];
         writeln!(
             out,
-            "formula newP_{n} = max(0, min(P_MAX_{n}, p_{n} + contrib_{n} + lambda_d));"
+            "formula newP_{n} = max(P_MIN_{n}, min(P_MAX_{n}, floor(r * p_{n}) + contrib_{n}));"
         )
         .ok();
     }
@@ -257,7 +275,7 @@ fn write_feasibility_analysis(
     graph: &SnnGraph,
     config: &PrismGenConfig,
     t_d: i32,
-    lambda_d: i32,
+    retention_rate: f64,
     names: &NameMap,
 ) {
     let wl = config.weight_levels.clamp(1, 10);
@@ -275,7 +293,7 @@ fn write_feasibility_analysis(
             .filter(|&w| w > 0)
             .collect();
 
-        let feasibility = check_feasibility(&excitatory_weights, t_d, lambda_d);
+        let feasibility = check_feasibility(&excitatory_weights, t_d, retention_rate);
         match feasibility {
             Feasibility::SingleStep => {
                 writeln!(out, "// {name}: FEASIBLE (single-step reach)").ok();
@@ -284,7 +302,7 @@ fn write_feasibility_analysis(
                 writeln!(out, "// {name}: FEASIBLE (multi-step, min {min_steps} steps)").ok();
             }
             Feasibility::Impossible => {
-                writeln!(out, "// WARNING: {name} INFEASIBLE — leak overwhelms excitatory input").ok();
+                writeln!(out, "// WARNING: {name} INFEASIBLE — steady-state below threshold").ok();
             }
         }
     }
@@ -402,14 +420,13 @@ fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfi
 // Discretized Neuron Module — The core implementation (paper §7)
 // ============================================================================
 
-/// Write a discretized neuron module that tracks exact potential in [0..P_MAX].
+/// Write a discretized neuron module that tracks exact potential in [P_MIN..P_MAX].
 fn write_discretized_neuron_module(
     out: &mut String,
     node: &Node,
     _graph: &SnnGraph,
     config: &PrismGenConfig,
     t_d: i32,
-    _lambda_d: i32,
     names: &NameMap,
 ) {
     let n = &names[&node.id];
@@ -449,7 +466,7 @@ fn write_discretized_neuron_module(
     writeln!(out, "  y_{n} : [0..1] init 0;  // spike output").ok();
     writeln!(
         out,
-        "  p_{n} : [0..P_MAX_{n}] init 0;  // membrane potential (discretized domain)"
+        "  p_{n} : [P_MIN_{n}..P_MAX_{n}] init 0;  // membrane potential (discretized domain)"
     )
     .ok();
     writeln!(out).ok();
@@ -673,7 +690,7 @@ mod tests {
         // Should contain discretized model markers
         assert!(prism.contains("DISCRETIZED PRISM model"));
         assert!(prism.contains("T_d"));
-        assert!(prism.contains("lambda_d"));
+        assert!(prism.contains("const double r = "));
         assert!(prism.contains("dtmc"));
     }
 
@@ -709,19 +726,58 @@ mod tests {
     }
 
     #[test]
-    fn test_discretized_model_has_additive_leak() {
+    fn test_discretized_model_has_multiplicative_leak() {
         let graph = SnnGraph::demo_layout();
         let config = basic_config();
         let prism = generate_discretized_model(&graph, &config);
 
-        // Should contain lambda_d in potential update formula
+        // Should contain r (retention rate) for multiplicative leak
         assert!(
-            prism.contains("lambda_d"),
-            "Model should reference lambda_d (additive leak)"
+            prism.contains("const double r = "),
+            "Model should declare retention rate r"
+        );
+        // Should contain floor(r * p_n) in potential update formula
+        assert!(
+            prism.contains("floor(r * p_"),
+            "Model should use multiplicative leak floor(r * p)"
+        );
+        // Should NOT contain lambda_d (old additive leak)
+        assert!(
+            !prism.contains("lambda_d"),
+            "Model should not reference lambda_d (old additive leak)"
         );
         assert!(
             prism.contains("newP_"),
             "Model should contain potential update formulas"
+        );
+    }
+
+    #[test]
+    fn test_discretized_model_allows_negative_potentials() {
+        // Create a graph with inhibitory connections
+        let mut graph = SnnGraph::default();
+        use crate::snn::graph::NodeKind;
+        let n1 = graph.add_node("N1", NodeKind::Neuron, [0.0, 0.0]);
+        let n2 = graph.add_node("N2", NodeKind::Neuron, [100.0, 0.0]);
+        // N1 inhibits N2
+        graph.add_edge(n1, n2, 100); // weight 100 but...
+        // Add inhibitory edge by setting negative weight
+        if let Some(edge) = graph.edges.last_mut() {
+            edge.weight = 100;
+            edge.is_inhibitory = true; // -100 signed weight
+        }
+        let config = basic_config();
+        let prism = generate_discretized_model(&graph, &config);
+
+        // Should contain negative P_MIN for N2
+        assert!(
+            prism.contains("P_MIN_N2"),
+            "Model should define P_MIN for neurons with inhibitory inputs"
+        );
+        // P_MIN should appear in variable declaration
+        assert!(
+            prism.contains("P_MIN_N2..P_MAX_N2"),
+            "Variable range should use P_MIN..P_MAX"
         );
     }
 

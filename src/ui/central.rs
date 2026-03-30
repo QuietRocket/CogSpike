@@ -1139,15 +1139,14 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             let m = &app.design.graph.model_config;
             let wl = app.verify.weight_levels;
             let t_d = crate::snn::discretization::discretized_threshold(m.p_rth, wl);
-            let leak_factor = 1.0 - (m.leak_r as f64 / 100.0);
-            let lambda_d = crate::snn::discretization::discretized_leak(leak_factor, t_d);
+            let r = m.leak_r as f64 / 100.0;
             ui.label(
-                egui::RichText::new(format!("T_d={t_d} \u{03bb}_d={lambda_d}"))
+                egui::RichText::new(format!("T_d={t_d} r={r:.2}"))
                     .small()
                     .weak(),
             )
             .on_hover_text(format!(
-                "Discretized threshold: {t_d}\nAdditive leak: {lambda_d}\nPotentials tracked in [0..T_d+E]"
+                "Discretized threshold: {t_d}\nRetention rate: {r:.2}\nMultiplicative leak: floor(r × p)\nPotentials tracked in [P_MIN..P_MAX]"
             ));
         }
     });

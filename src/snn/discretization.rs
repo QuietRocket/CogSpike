@@ -6,7 +6,8 @@
 //! ## Key Formulas
 //! - **Weight discretization**: `δ_W(w) = ⌊w · W / w_max⌉` (§3)
 //! - **Threshold calibration**: `T_d = ⌈T · W / w_max⌉` (§3.2)
-//! - **Leak factor**: `λ_d = -max(1, ⌊ℓ · T_d⌋)` (§4.2)
+//! - **Multiplicative leak**: `floor(r × p)` — same as simulation engine (§4.2)
+//! - **Negative potentials**: `P_MIN = -Σ|w_inhib|` preserves differential inhibition depth
 
 /// Maximum weight value in CogSpike's internal scale.
 const W_MAX: f64 = 100.0;
@@ -37,19 +38,15 @@ pub fn discretized_threshold(threshold: u8, weight_levels: u8) -> i32 {
     (t * w + w_max - 1) / w_max
 }
 
-/// Compute the discretized additive leak factor.
+/// Compute the minimum potential for a neuron in the discretized domain.
 ///
-/// Paper §4.2: `λ_d = -max(1, ⌊ℓ · T_d⌋)`
+/// P_MIN = sum of all negative (inhibitory) discretized incoming weights.
+/// This allows the potential to go negative, preserving differential
+/// inhibition depth that drives WTA convergence.
 ///
-/// where `ℓ = 1 - r` is the leak factor (fraction of potential lost per step),
-/// and `r` is the retention rate from `ModelConfig::leak_r / 100`.
-///
-/// The `max(1, ...)` ensures leak is always at least -1 to maintain the
-/// Asymptotic Silence property (Soundness Theorem).
-///
-/// Returns a negative integer.
-pub fn discretized_leak(leak_factor: f64, t_d: i32) -> i32 {
-    -(1i32.max((leak_factor * t_d as f64).floor() as i32))
+/// Returns a non-positive integer (0 if no inhibitory inputs).
+pub fn compute_discretized_p_min(inhibitory_weights: &[i32]) -> i32 {
+    inhibitory_weights.iter().filter(|&&w| w < 0).sum()
 }
 
 /// Result of a feasibility analysis for a neuron.
@@ -67,25 +64,49 @@ pub enum Feasibility {
 }
 
 /// Check whether a neuron can reach its firing threshold given its discretized
-/// excitatory weights and leak factor.
+/// excitatory weights and retention rate.
 ///
-/// Paper §5: A neuron is feasible if `Σ w_i^d > |λ_d|` for its excitatory inputs.
-pub fn check_feasibility(excitatory_weights: &[i32], t_d: i32, lambda_d: i32) -> Feasibility {
+/// With multiplicative leak `r × p`, a neuron reaches steady-state potential
+/// `p_ss = excitation / (1 - r)` under sustained maximum input. If `p_ss >= T_d`,
+/// the neuron is feasible.
+///
+/// - `SingleStep`: max excitation in one tick ≥ T_d
+/// - `MultiStep`: needs accumulation over multiple ticks to reach T_d
+/// - `Impossible`: steady-state potential under sustained max input < T_d
+pub fn check_feasibility(excitatory_weights: &[i32], t_d: i32, retention_rate: f64) -> Feasibility {
     let max_excitation: i32 = excitatory_weights.iter().sum();
-    let leak_magnitude = lambda_d.unsigned_abs() as i32;
 
     if max_excitation >= t_d {
         return Feasibility::SingleStep;
     }
 
-    let net_gain = max_excitation - leak_magnitude;
-    if net_gain <= 0 {
+    if max_excitation <= 0 {
         return Feasibility::Impossible;
     }
 
-    // Steps needed: ceil(t_d / net_gain)
-    let steps = (t_d + net_gain - 1) / net_gain;
-    Feasibility::MultiStep { min_steps: steps }
+    // With multiplicative leak, steady-state under sustained input:
+    // p_ss = max_excitation / (1 - r)
+    let leak_factor = 1.0 - retention_rate;
+    if leak_factor <= 1e-9 {
+        // r ≈ 1.0, no leak → always accumulates (multi-step if excitation < T_d)
+        return Feasibility::MultiStep { min_steps: ((t_d as f64) / max_excitation as f64).ceil() as i32 };
+    }
+
+    let p_ss = max_excitation as f64 / leak_factor;
+    if p_ss < t_d as f64 {
+        return Feasibility::Impossible;
+    }
+
+    // Estimate steps: solve r^n * 0 + E * (1 - r^n) / (1 - r) >= T_d
+    // Simplification: n = ceil(log(1 - T_d*(1-r)/E) / log(r))... just iterate
+    let mut p = 0.0_f64;
+    for step in 1..=1000 {
+        p = retention_rate * p + max_excitation as f64;
+        if p >= t_d as f64 {
+            return Feasibility::MultiStep { min_steps: step };
+        }
+    }
+    Feasibility::Impossible
 }
 
 // ============================================================================
@@ -112,8 +133,7 @@ mod tests {
 
     #[test]
     fn test_discretize_weight_half_w5() {
-        // δ_5(50) = round(50 * 5 / 100) = round(2.5) = 3 (rounds to even → 2? No, Rust rounds 2.5 → 3)
-        // Actually f64::round rounds 2.5 → 3.0
+        // δ_5(50) = round(50 * 5 / 100) = round(2.5) = 3
         assert_eq!(discretize_weight(50, 5), 3);
     }
 
@@ -159,66 +179,81 @@ mod tests {
         assert_eq!(discretized_threshold(100, 1), 1);
     }
 
-    // --- Leak factor ---
+    // --- P_MIN computation ---
 
     #[test]
-    fn test_discretized_leak_basic() {
-        // λ_d(ℓ=0.1, T_d=3) = -max(1, floor(0.1 * 3)) = -max(1, 0) = -1
-        assert_eq!(discretized_leak(0.1, 3), -1);
+    fn test_p_min_no_inhibitory() {
+        assert_eq!(compute_discretized_p_min(&[3, 2]), 0);
     }
 
     #[test]
-    fn test_discretized_leak_high() {
-        // λ_d(ℓ=0.5, T_d=6) = -max(1, floor(0.5 * 6)) = -max(1, 3) = -3
-        assert_eq!(discretized_leak(0.5, 6), -3);
+    fn test_p_min_with_inhibitory() {
+        // Three inhibitory weights of -3 each
+        assert_eq!(compute_discretized_p_min(&[-3, -3, -3]), -9);
     }
 
     #[test]
-    fn test_discretized_leak_minimum_one() {
-        // λ_d(ℓ=0.01, T_d=3) = -max(1, floor(0.01 * 3)) = -max(1, 0) = -1
-        assert_eq!(discretized_leak(0.01, 3), -1);
+    fn test_p_min_mixed() {
+        // Mix of excitatory (+3) and inhibitory (-2, -3)
+        assert_eq!(compute_discretized_p_min(&[3, -2, -3]), -5);
     }
 
     #[test]
-    fn test_discretized_leak_exact_threshold() {
-        // λ_d(ℓ=0.05, T_d=20) = -max(1, floor(0.05 * 20)) = -max(1, 1) = -1
-        assert_eq!(discretized_leak(0.05, 20), -1);
+    fn test_p_min_empty() {
+        assert_eq!(compute_discretized_p_min(&[]), 0);
     }
 
-    // --- Feasibility ---
+    // --- Feasibility (with multiplicative leak) ---
 
     #[test]
     fn test_feasibility_single_step() {
-        // One excitatory weight of 3, threshold 3 → can fire in one step
-        assert_eq!(check_feasibility(&[3], 3, -1), Feasibility::SingleStep);
+        // One excitatory weight of 3, threshold 3, r=0.5 → fires in one step
+        assert_eq!(check_feasibility(&[3], 3, 0.5), Feasibility::SingleStep);
     }
 
     #[test]
     fn test_feasibility_multi_step() {
-        // One excitatory weight of 2, threshold 5, leak -1 → net gain = 1 per step → 5 steps
+        // Excitation=2 per step, T_d=5, r=0.5
+        // Step 1: 0*0.5 + 2 = 2
+        // Step 2: 2*0.5 + 2 = 3
+        // Step 3: 3*0.5 + 2 = 3.5
+        // Step 4: 3.5*0.5 + 2 = 3.75
+        // Step 5: 3.75*0.5 + 2 = 3.875
+        // Steady state: 2/(1-0.5) = 4 < 5 → Impossible
+        assert_eq!(check_feasibility(&[2], 5, 0.5), Feasibility::Impossible);
+    }
+
+    #[test]
+    fn test_feasibility_multi_step_achievable() {
+        // Excitation=2 per step, T_d=3, r=0.5
+        // Step 1: 2, Step 2: 3 → reaches threshold
         assert_eq!(
-            check_feasibility(&[2], 5, -1),
-            Feasibility::MultiStep { min_steps: 5 }
+            check_feasibility(&[2], 3, 0.5),
+            Feasibility::MultiStep { min_steps: 2 }
         );
     }
 
     #[test]
-    fn test_feasibility_impossible() {
-        // One excitatory weight of 1, leak -1 → net gain = 0, can never accumulate
-        assert_eq!(check_feasibility(&[1], 3, -1), Feasibility::Impossible);
+    fn test_feasibility_impossible_no_excitation() {
+        assert_eq!(check_feasibility(&[], 3, 0.5), Feasibility::Impossible);
     }
 
     #[test]
-    fn test_feasibility_impossible_leak_dominates() {
-        // One excitatory weight of 1, leak -2 → net gain negative
-        assert_eq!(check_feasibility(&[1], 3, -2), Feasibility::Impossible);
+    fn test_feasibility_no_leak() {
+        // r=1.0 (no leak) → accumulates indefinitely
+        // Excitation=1 per step, T_d=3 → 3 steps
+        assert_eq!(
+            check_feasibility(&[1], 3, 1.0),
+            Feasibility::MultiStep { min_steps: 3 }
+        );
     }
 
     #[test]
     fn test_feasibility_multiple_inputs() {
-        // Two excitatory weights [2, 1], threshold 5, leak -1 → sum=3, net_gain=2, steps=3
+        // Two excitatory weights [2, 1] = 3 total, T_d=5, r=0.5
+        // Step 1: 3, Step 2: 1.5+3=4.5, Step 3: 2.25+3=5.25 ≥ 5 → 3 steps
         assert_eq!(
-            check_feasibility(&[2, 1], 5, -1),
+            check_feasibility(&[2, 1], 5, 0.5),
             Feasibility::MultiStep { min_steps: 3 }
         );
     }
