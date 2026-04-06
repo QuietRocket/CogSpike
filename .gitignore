@@ -12,6 +12,16 @@ target_wasm
 # https://github.com/lycheeverse/lychee
 .lycheecache
 
+# Compiled PDFs (regenerate from .typ sources)
+paper/*.pdf
+research/**/*.pdf
+
+# Internal notes (not for version control)
+notes/
+
+# Scratch / temporary working files
+temp/
+
 # Research artifacts to exclude
 research/limits/experiments/
 research/limits/benchmark/
