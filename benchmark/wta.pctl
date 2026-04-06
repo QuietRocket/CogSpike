@@ -1,0 +1,8 @@
+// Winner persistence: N1 fires infinitely often
+P=? [ G F (y_N1=1) ]
+
+// Loser silence: N2 eventually stops
+P=? [ F G (y_N2=0) ]
+
+// Loser silence: N3 eventually stops
+P=? [ F G (y_N3=0) ]
