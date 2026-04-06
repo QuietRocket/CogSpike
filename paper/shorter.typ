@@ -13,17 +13,19 @@
 
 #import "llncs.typ": *
 
-// ── Anonymized institute (double-blind) ──────────────────────────────────────
-#let inst-anon = institute("Anonymous Institution")
+// ── Institutes ───────────────────────────────────────────────────────────────
+#let inst-uns = institute("Université Côte d'Azur, CNRS, I3S, France")
 
 // ── Apply template ───────────────────────────────────────────────────────────
 #show: lncs.with(
   title: "A tool for Formal Verification of\n Probabilistic Spiking Neural Networks\nvia Weight-Discretized Quotient Abstractions",
   authors: (
-    author("Anonymous submission", insts: (inst-anon,)),
+    author("Nikan Zandian Jazi", insts: (inst-uns,)),
+    author("Elisabetta De Maria", insts: (inst-uns,)),
+    author("Christopher Leturc", insts: (inst-uns,)),
   ),
   running-title: "Formal Verification of SNNs via Weight-Discretized Quotient Abstractions",
-  running-authors: "Anonymous",
+  running-authors: "N. Zandian Jazi, E. De Maria, C. Leturc",
   abstract: [
     Spiking Neural Networks (SNNs) are known for modelling biological neural dynamics more
     faithfully than classical artificial networks. Introducing stochastic,
