@@ -11,7 +11,7 @@
 //   = 5.75p contributions
 //   References (~1p)
 
-#import "Typst/llncs.typ": *
+#import "llncs.typ": *
 
 // ── Anonymized institute (double-blind) ──────────────────────────────────────
 #let inst-anon = institute("Anonymous Institution")
