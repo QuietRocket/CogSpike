@@ -1,0 +1,17 @@
+// Deep investigation of early firing dynamics
+// Step-by-step reachability
+
+// By step 1, all neurons should fire (newPotential=100>80)
+P=? [ F<=1 "spike_N1" ]
+P=? [ F<=1 "spike_N2" ]
+P=? [ F<=1 "spike_N3" ]
+
+// By step 3
+P=? [ F<=3 "spike_N1" ]
+P=? [ F<=3 "spike_N2" ]
+P=? [ F<=3 "spike_N3" ]
+
+// At exactly step 1, check all three fire  
+P=? [ X "spike_N1" ]
+P=? [ X "spike_N2" ]  
+P=? [ X "spike_N3" ]

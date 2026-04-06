@@ -1,0 +1,29 @@
+// ── Loser eventual silence (FG approximation) ────────────────────
+// P1: Prob that loser N2 stays silent for all of the last 80 steps
+// (if FG holds, this should be 1.0 for large enough T)
+P=? [ F<=20 G<=80 (y6=0) ]
+
+// P2: Same for loser N3
+P=? [ F<=20 G<=80 (y7=0) ]
+
+// P3: Same for loser output O2
+P=? [ F<=20 G<=80 (y10=0) ]
+
+// P4: Same for loser output O3
+P=? [ F<=20 G<=80 (y11=0) ]
+
+// ── Winner persistence ────────────────────────────────────────────
+// P5: Winner N1 fires within 50 steps (should be 1.0)
+P=? [ F<=50 "spike5" ]
+
+// P6: Winner output O1 fires within 50 steps
+P=? [ F<=50 "spike9" ]
+
+// ── Expected spike counts (quantitative) ──────────────────────────
+// P7–P12: Expected spikes over 50 steps — winner should dominate
+R{"spike5_count"}=? [ C<=50 ]
+R{"spike6_count"}=? [ C<=50 ]
+R{"spike7_count"}=? [ C<=50 ]
+R{"spike9_count"}=? [ C<=50 ]
+R{"spike10_count"}=? [ C<=50 ]
+R{"spike11_count"}=? [ C<=50 ]

@@ -1,0 +1,8 @@
+// Precise step tracing
+P=? [ F<=2 "spike_N1" ]
+P=? [ F<=2 "spike_N2" ]
+P=? [ F<=2 "spike_N3" ]
+P=? [ F<=4 "spike_N1" ]
+P=? [ F<=5 "spike_N1" ]
+P=? [ F<=10 "spike_N1" ]
+P=? [ F<=20 "spike_N1" ]

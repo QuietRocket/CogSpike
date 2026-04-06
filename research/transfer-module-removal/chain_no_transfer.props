@@ -1,0 +1,50 @@
+// ============================================================================
+// Properties for chain_no_transfer.prism
+// ============================================================================
+//
+// Verified timing from -simpath trace:
+//   Step 0: initial (all zero)
+//   Step 1: x_Inp=1 (input fires)
+//   Step 2: y_A=1   (A fires, saw x_Inp=1)
+//   Step 3: y_B=1   (B fires, saw y_A=1)
+//   Step 4: y_C=1   (C fires, saw y_B=1)
+//
+// Spike propagates at 1-tick-per-synapse, reaching output at step 4.
+
+// ---------- REACHABILITY ----------
+
+// P1: Output C eventually fires. Expected: 1.0
+P=? [ F "output_fires" ]
+
+// P2: A eventually fires. Expected: 1.0
+P=? [ F "A_fires" ]
+
+// P3: B eventually fires. Expected: 1.0
+P=? [ F "B_fires" ]
+
+// ---------- EXACT TIMING ----------
+
+// P4: At step 2 (two transitions from initial), A has fired.
+// Expected: 1.0
+P=? [ X X "A_fires" ]
+
+// P5: At step 3, B has fired.
+// Expected: 1.0
+P=? [ X X X "B_fires" ]
+
+// P6: At step 4, C fires. THE key property: spike reaches end of chain
+// at exactly 1-tick-per-synapse without transfer modules.
+// Expected: 1.0
+P=? [ X X X X "output_fires" ]
+
+// P7: C does NOT fire at step 3 (B hasn't finished propagating yet).
+// Expected: 1.0
+P=? [ X X X !y_C=1 ]
+
+// ---------- BOUNDED REACHABILITY ----------
+
+// P8: Spike reaches C within 5 steps. Expected: 1.0
+P=? [ F<=5 "output_fires" ]
+
+// P9: Spike does NOT reach C within 3 steps. Expected: 0.0
+P=? [ F<=3 "output_fires" ]

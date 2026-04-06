@@ -1,0 +1,35 @@
+// ============================================================================
+// Properties for fork_no_transfer.prism
+// ============================================================================
+//
+// Timing (from simpath):
+//   Step 0: initial
+//   Step 1: x_Inp=1
+//   Step 2: y_A=1
+//   Step 3: y_B1=1 AND y_B2=1  (both fire simultaneously)
+
+// ---------- REACHABILITY ----------
+
+// P1: Both B1 and B2 eventually fire simultaneously. Expected: 1.0
+P=? [ F "both_fire" ]
+
+// P2: B1 eventually fires. Expected: 1.0
+P=? [ F "B1_fires" ]
+
+// P3: B2 eventually fires. Expected: 1.0
+P=? [ F "B2_fires" ]
+
+// ---------- SIMULTANEOUS DELIVERY PROOF ----------
+
+// P4: At step 3, BOTH B1 and B2 fire simultaneously.
+// A fires at step 2, both B1 and B2 read y_A=1 at step 3.
+// Expected: 1.0
+P=? [ X X X "both_fire" ]
+
+// P5: It is ALWAYS true that B1 fires iff B2 fires (perfect synchronization).
+// Expected: 1.0
+P=? [ G ("B1_fires" => "B2_fires") ]
+
+// P6: Symmetric check.
+// Expected: 1.0
+P=? [ G ("B2_fires" => "B1_fires") ]

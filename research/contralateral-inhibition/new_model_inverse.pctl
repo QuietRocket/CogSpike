@@ -1,0 +1,14 @@
+// ── Inverse tests: these should be 0.0 ──────────────────────────
+// Losers cannot persist
+P=? [ G F "spike_N2" ]
+P=? [ G F "spike_N3" ]
+
+// Winner cannot go silent
+P=? [ F G (y_N1=0) ]
+
+// ── Exclusivity ─────────────────────────────────────────────────
+// Eventually at most 1 neuron fires at a time
+P=? [ F G (y_N1 + y_N2 + y_N3 <= 1) ]
+
+// ── Quick winner check ──────────────────────────────────────────
+P=? [ F<=2 "spike_N1" ]

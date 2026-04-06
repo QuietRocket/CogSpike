@@ -1,0 +1,269 @@
+// Auto-generated PRISM model from CogSpike
+// Neurons: 9, Edges: 12
+dtmc
+
+// Global neuron parameters
+const int P_rth = 80;
+const int P_rest = 0;
+const int P_reset = 0;
+const double r = 0.5;
+const int P_MIN = -200;
+const int P_MAX = 200;
+
+// Per-neuron potential bounds (optimized for state space)
+const int P_MIN_5 = -210;
+const int P_MAX_5 = 150;
+const int P_MIN_6 = -350;
+const int P_MAX_6 = 150;
+const int P_MIN_7 = -350;
+const int P_MAX_7 = 150;
+const int P_MIN_9 = 0;
+const int P_MAX_9 = 150;
+const int P_MIN_10 = 0;
+const int P_MAX_10 = 150;
+const int P_MIN_11 = 0;
+const int P_MAX_11 = 150;
+const int T_MAX = 100;
+
+// Firing probability thresholds (4 levels)
+formula threshold1 = 20 * P_rth / 100;
+formula threshold2 = 40 * P_rth / 100;
+formula threshold3 = 60 * P_rth / 100;
+formula threshold4 = 80 * P_rth / 100;
+
+// Synaptic weights
+const int weight_in1_5 = 100;
+const int weight_in2_6 = 100;
+const int weight_in3_7 = 100;
+const int weight_n5_9 = 100;
+const int weight_n6_10 = 100;
+const int weight_n7_11 = 100;
+const int weight_n5_6 = -100;
+const int weight_n6_5 = -70;
+const int weight_n6_7 = -70;
+const int weight_n7_6 = -70;
+const int weight_n5_7 = -100;
+const int weight_n7_5 = -70;
+
+// Transfer variables for spike propagation
+// z5_9 defined in transfer module
+// z6_10 defined in transfer module
+// z7_11 defined in transfer module
+// z5_6 defined in transfer module
+// z6_5 defined in transfer module
+// z6_7 defined in transfer module
+// z7_6 defined in transfer module
+// z5_7 defined in transfer module
+// z7_5 defined in transfer module
+
+// Membrane potential update formulas (using per-neuron bounds)
+formula newPotential_5 = max(P_MIN_5, min(P_MAX_5, floor((weight_in1_5 * x1 + weight_n6_5 * z6_5 + weight_n7_5 * z7_5) + r * p5)));
+formula newPotential_6 = max(P_MIN_6, min(P_MAX_6, floor((weight_in2_6 * x2 + weight_n5_6 * z5_6 + weight_n7_6 * z7_6) + r * p6)));
+formula newPotential_7 = max(P_MIN_7, min(P_MAX_7, floor((weight_in3_7 * x3 + weight_n6_7 * z6_7 + weight_n5_7 * z5_7) + r * p7)));
+formula newPotential_9 = max(P_MIN_9, min(P_MAX_9, floor((weight_n5_9 * z5_9) + r * p9)));
+formula newPotential_10 = max(P_MIN_10, min(P_MAX_10, floor((weight_n6_10 * z6_10) + r * p10)));
+formula newPotential_11 = max(P_MIN_11, min(P_MAX_11, floor((weight_n7_11 * z7_11) + r * p11)));
+
+// Input generator formulas
+// S1: Always On, S2/S3: Pulse(5) — fire for first 5 ticks then off
+formula in1_g0_fires = true;
+formula in2_g0_fires = (t < 5);
+formula in3_g0_fires = (t < 5);
+
+module Clock
+  t : [0..T_MAX] init 0;
+  [tick] t < T_MAX -> (t' = t + 1);
+  [tick] t = T_MAX -> (t' = T_MAX);
+endmodule
+
+module Inputs
+  x1 : [0..1] init 0;
+  x2 : [0..1] init 0;
+  x3 : [0..1] init 0;
+
+  // Multi-generator input transitions
+  [tick] in1_g0_fires -> (x1' = 1);
+  [tick] !(in1_g0_fires) -> (x1' = 0);
+  [tick] in2_g0_fires -> (x2' = 1);
+  [tick] !(in2_g0_fires) -> (x2' = 0);
+  [tick] in3_g0_fires -> (x3' = 1);
+  [tick] !(in3_g0_fires) -> (x3' = 0);
+endmodule
+
+module Neuron5
+  // No refractory periods - simplified model
+  y5 : [0..1] init 0;  // spike output
+  p5 : [P_MIN_5..P_MAX_5] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y5 = 1 -> (p5' = P_reset) & (y5' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y5 = 0 & p5 <= threshold1 -> (y5' = 0) & (p5' = newPotential_5);
+  [tick] y5 = 0 & p5 > threshold1 & p5 <= threshold2 -> 0.7500:(y5' = 0) & (p5' = newPotential_5) + 0.2500:(y5' = 1);
+  [tick] y5 = 0 & p5 > threshold2 & p5 <= threshold3 -> 0.5000:(y5' = 0) & (p5' = newPotential_5) + 0.5000:(y5' = 1);
+  [tick] y5 = 0 & p5 > threshold3 & p5 <= threshold4 -> 0.2500:(y5' = 0) & (p5' = newPotential_5) + 0.7500:(y5' = 1);
+  [tick] y5 = 0 & p5 > threshold4 -> 1.0:(y5' = 1);
+
+endmodule
+
+module Neuron6
+  // No refractory periods - simplified model
+  y6 : [0..1] init 0;  // spike output
+  p6 : [P_MIN_6..P_MAX_6] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y6 = 1 -> (p6' = P_reset) & (y6' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y6 = 0 & p6 <= threshold1 -> (y6' = 0) & (p6' = newPotential_6);
+  [tick] y6 = 0 & p6 > threshold1 & p6 <= threshold2 -> 0.7500:(y6' = 0) & (p6' = newPotential_6) + 0.2500:(y6' = 1);
+  [tick] y6 = 0 & p6 > threshold2 & p6 <= threshold3 -> 0.5000:(y6' = 0) & (p6' = newPotential_6) + 0.5000:(y6' = 1);
+  [tick] y6 = 0 & p6 > threshold3 & p6 <= threshold4 -> 0.2500:(y6' = 0) & (p6' = newPotential_6) + 0.7500:(y6' = 1);
+  [tick] y6 = 0 & p6 > threshold4 -> 1.0:(y6' = 1);
+
+endmodule
+
+module Neuron7
+  // No refractory periods - simplified model
+  y7 : [0..1] init 0;  // spike output
+  p7 : [P_MIN_7..P_MAX_7] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y7 = 1 -> (p7' = P_reset) & (y7' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y7 = 0 & p7 <= threshold1 -> (y7' = 0) & (p7' = newPotential_7);
+  [tick] y7 = 0 & p7 > threshold1 & p7 <= threshold2 -> 0.7500:(y7' = 0) & (p7' = newPotential_7) + 0.2500:(y7' = 1);
+  [tick] y7 = 0 & p7 > threshold2 & p7 <= threshold3 -> 0.5000:(y7' = 0) & (p7' = newPotential_7) + 0.5000:(y7' = 1);
+  [tick] y7 = 0 & p7 > threshold3 & p7 <= threshold4 -> 0.2500:(y7' = 0) & (p7' = newPotential_7) + 0.7500:(y7' = 1);
+  [tick] y7 = 0 & p7 > threshold4 -> 1.0:(y7' = 1);
+
+endmodule
+
+module Neuron9
+  // No refractory periods - simplified model
+  y9 : [0..1] init 0;  // spike output
+  p9 : [P_MIN_9..P_MAX_9] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y9 = 1 -> (p9' = P_reset) & (y9' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y9 = 0 & p9 <= threshold1 -> (y9' = 0) & (p9' = newPotential_9);
+  [tick] y9 = 0 & p9 > threshold1 & p9 <= threshold2 -> 0.7500:(y9' = 0) & (p9' = newPotential_9) + 0.2500:(y9' = 1);
+  [tick] y9 = 0 & p9 > threshold2 & p9 <= threshold3 -> 0.5000:(y9' = 0) & (p9' = newPotential_9) + 0.5000:(y9' = 1);
+  [tick] y9 = 0 & p9 > threshold3 & p9 <= threshold4 -> 0.2500:(y9' = 0) & (p9' = newPotential_9) + 0.7500:(y9' = 1);
+  [tick] y9 = 0 & p9 > threshold4 -> 1.0:(y9' = 1);
+
+endmodule
+
+module Neuron10
+  // No refractory periods - simplified model
+  y10 : [0..1] init 0;  // spike output
+  p10 : [P_MIN_10..P_MAX_10] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y10 = 1 -> (p10' = P_reset) & (y10' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y10 = 0 & p10 <= threshold1 -> (y10' = 0) & (p10' = newPotential_10);
+  [tick] y10 = 0 & p10 > threshold1 & p10 <= threshold2 -> 0.7500:(y10' = 0) & (p10' = newPotential_10) + 0.2500:(y10' = 1);
+  [tick] y10 = 0 & p10 > threshold2 & p10 <= threshold3 -> 0.5000:(y10' = 0) & (p10' = newPotential_10) + 0.5000:(y10' = 1);
+  [tick] y10 = 0 & p10 > threshold3 & p10 <= threshold4 -> 0.2500:(y10' = 0) & (p10' = newPotential_10) + 0.7500:(y10' = 1);
+  [tick] y10 = 0 & p10 > threshold4 -> 1.0:(y10' = 1);
+
+endmodule
+
+module Neuron11
+  // No refractory periods - simplified model
+  y11 : [0..1] init 0;  // spike output
+  p11 : [P_MIN_11..P_MAX_11] init 0;  // membrane potential (per-neuron bounds)
+
+  // Normal period - spike reset
+  [tick] y11 = 1 -> (p11' = P_reset) & (y11' = 0);
+  // Normal period - probabilistic firing (4 levels)
+  [tick] y11 = 0 & p11 <= threshold1 -> (y11' = 0) & (p11' = newPotential_11);
+  [tick] y11 = 0 & p11 > threshold1 & p11 <= threshold2 -> 0.7500:(y11' = 0) & (p11' = newPotential_11) + 0.2500:(y11' = 1);
+  [tick] y11 = 0 & p11 > threshold2 & p11 <= threshold3 -> 0.5000:(y11' = 0) & (p11' = newPotential_11) + 0.5000:(y11' = 1);
+  [tick] y11 = 0 & p11 > threshold3 & p11 <= threshold4 -> 0.2500:(y11' = 0) & (p11' = newPotential_11) + 0.7500:(y11' = 1);
+  [tick] y11 = 0 & p11 > threshold4 -> 1.0:(y11' = 1);
+
+endmodule
+
+// Synapse transfer modules (spike propagation)
+// Transfer variables sample source neuron's y output during tick
+module Transfer5_9
+  z5_9 : [0..1] init 0;
+  [tick] true -> (z5_9' = y5);
+endmodule
+
+module Transfer6_10
+  z6_10 : [0..1] init 0;
+  [tick] true -> (z6_10' = y6);
+endmodule
+
+module Transfer7_11
+  z7_11 : [0..1] init 0;
+  [tick] true -> (z7_11' = y7);
+endmodule
+
+module Transfer5_6
+  z5_6 : [0..1] init 0;
+  [tick] true -> (z5_6' = y5);
+endmodule
+
+module Transfer6_5
+  z6_5 : [0..1] init 0;
+  [tick] true -> (z6_5' = y6);
+endmodule
+
+module Transfer6_7
+  z6_7 : [0..1] init 0;
+  [tick] true -> (z6_7' = y6);
+endmodule
+
+module Transfer7_6
+  z7_6 : [0..1] init 0;
+  [tick] true -> (z7_6' = y7);
+endmodule
+
+module Transfer5_7
+  z5_7 : [0..1] init 0;
+  [tick] true -> (z5_7' = y5);
+endmodule
+
+module Transfer7_5
+  z7_5 : [0..1] init 0;
+  [tick] true -> (z7_5' = y7);
+endmodule
+
+
+// Spike count rewards
+rewards "spike5_count"
+  y5 = 1 : 1;
+endrewards
+
+rewards "spike6_count"
+  y6 = 1 : 1;
+endrewards
+
+rewards "spike7_count"
+  y7 = 1 : 1;
+endrewards
+
+rewards "spike9_count"
+  y9 = 1 : 1;
+endrewards
+
+rewards "spike10_count"
+  y10 = 1 : 1;
+endrewards
+
+rewards "spike11_count"
+  y11 = 1 : 1;
+endrewards
+
+// Labels for PCTL properties
+label "spike5" = (y5 = 1);
+label "spike6" = (y6 = 1);
+label "spike7" = (y7 = 1);
+label "spike9" = (y9 = 1);
+label "spike10" = (y10 = 1);
+label "spike11" = (y11 = 1);
+label "output_spike" = (y9 = 1 | y10 = 1 | y11 = 1);

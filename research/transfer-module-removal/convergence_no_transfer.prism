@@ -1,0 +1,110 @@
+// ============================================================================
+// PROOF 3: Convergence Topology — Two Sources Into One Target, No Transfer
+// ============================================================================
+//
+// Topology:
+//   Input1 ──→ A ──┐
+//                   ├──→ C (output)
+//   Input2 ──→ B ──┘
+//
+// Purpose: When two neurons A and B BOTH feed into C, verify that C's potential
+//   correctly accumulates BOTH inputs with 1-tick delay — without separate
+//   transfer variables z_A_C and z_B_C.
+//
+// Also tests subthreshold accumulation: each individual source has weight 60
+//   (below threshold 100), so C only fires when BOTH A and B spike in the
+//   same tick. This is the hardest test — if transfer removal broke the
+//   synchronization, C would never see both spikes simultaneously.
+//
+// Expected results:
+//   - Both inputs fire at tick 0 → A,B fire at tick 1 → C fires at tick 2
+//   - P=? [F y_C=1] = 1.0
+//   - P=? [X X "output_fires"] = 1.0
+//
+dtmc
+
+// Global neuron parameters
+const int P_rth = 100;
+const int P_rest = 0;
+const int P_reset = 0;
+const double r = 0.0;  // No leak — so potential is purely from inputs
+
+// Per-neuron potential bounds
+const int P_MIN_A = 0;
+const int P_MAX_A = 150;
+const int P_MIN_B = 0;
+const int P_MAX_B = 150;
+const int P_MIN_C = 0;
+const int P_MAX_C = 150;
+
+const int T_MAX = 10;
+
+formula threshold1 = 100;
+
+// Synaptic weights
+// Input → A, Input → B: strong (causes fire)
+const int w_Inp1_A = 110;
+const int w_Inp2_B = 110;
+// A → C, B → C: each SUBTHRESHOLD (55 each, need both for 110 > 100)
+const int w_A_C = 55;
+const int w_B_C = 55;
+
+// NO TRANSFER MODULES
+// C reads BOTH y_A and y_B directly — must see both at the same tick
+formula newPotential_A = max(P_MIN_A, min(P_MAX_A, floor(w_Inp1_A * x_Inp1 + r * p_A)));
+formula newPotential_B = max(P_MIN_B, min(P_MAX_B, floor(w_Inp2_B * x_Inp2 + r * p_B)));
+formula newPotential_C = max(P_MIN_C, min(P_MAX_C, floor(w_A_C * y_A + w_B_C * y_B + r * p_C)));
+
+// ── Inputs ──
+// Both inputs fire at tick 0 only
+formula in_Inp1_g0_fires = (step < 1);
+formula in_Inp2_g0_fires = (step < 1);
+
+module GlobalClock
+  step : [0..T_MAX] init 0;
+  [tick] step < T_MAX -> (step' = step + 1);
+  [tick] step = T_MAX -> (step' = step);
+endmodule
+
+module Inputs
+  x_Inp1 : [0..1] init 0;
+  x_Inp2 : [0..1] init 0;
+
+  [tick] in_Inp1_g0_fires & in_Inp2_g0_fires     -> (x_Inp1' = 1) & (x_Inp2' = 1);
+  [tick] in_Inp1_g0_fires & !in_Inp2_g0_fires    -> (x_Inp1' = 1) & (x_Inp2' = 0);
+  [tick] !in_Inp1_g0_fires & in_Inp2_g0_fires    -> (x_Inp1' = 0) & (x_Inp2' = 1);
+  [tick] !in_Inp1_g0_fires & !in_Inp2_g0_fires   -> (x_Inp1' = 0) & (x_Inp2' = 0);
+endmodule
+
+// ── Neuron A ──
+module NeuronA
+  y_A : [0..1] init 0;
+  p_A : [P_MIN_A..P_MAX_A] init 0;
+  [tick] newPotential_A <= threshold1 -> (y_A' = 0) & (p_A' = newPotential_A);
+  [tick] newPotential_A > threshold1  -> 1.0:(y_A' = 1) & (p_A' = P_reset);
+endmodule
+
+// ── Neuron B ──
+module NeuronB
+  y_B : [0..1] init 0;
+  p_B : [P_MIN_B..P_MAX_B] init 0;
+  [tick] newPotential_B <= threshold1 -> (y_B' = 0) & (p_B' = newPotential_B);
+  [tick] newPotential_B > threshold1  -> 1.0:(y_B' = 1) & (p_B' = P_reset);
+endmodule
+
+// ── Neuron C (output) — needs BOTH A and B to fire ──
+module NeuronC
+  y_C : [0..1] init 0;
+  p_C : [P_MIN_C..P_MAX_C] init 0;
+  [tick] newPotential_C <= threshold1 -> (y_C' = 0) & (p_C' = newPotential_C);
+  [tick] newPotential_C > threshold1  -> 1.0:(y_C' = 1) & (p_C' = P_reset);
+endmodule
+
+rewards "spikes_C"
+  [tick] y_C = 1 : 1;
+endrewards
+
+label "A_fires"        = y_A = 1;
+label "B_fires"        = y_B = 1;
+label "output_fires"   = y_C = 1;
+label "both_sources"   = y_A = 1 & y_B = 1;

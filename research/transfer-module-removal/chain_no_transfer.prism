@@ -1,0 +1,122 @@
+// ============================================================================
+// PROOF 1: Chain Topology — Spike Propagation Without Transfer Modules
+// ============================================================================
+//
+// Topology: Input --> A --> B --> C (output)
+//
+// Purpose: Demonstrate that a spike from the input reaches neuron C exactly
+//   2 ticks later, proving the 1-tick synaptic delay is preserved by PRISM's
+//   synchronous composition — no transfer modules needed.
+//
+// Key insight: In PRISM, all [tick]-synchronized modules evaluate guards on
+//   pre-transition state. So y_A in B's formula is always the value A set in
+//   the PREVIOUS tick, giving 1-tick delay for free.
+//
+// Model: Deterministic (1 threshold level), no refractory, strong weights.
+//   This eliminates stochastic noise so we can verify exact timing.
+//
+// Expected results:
+//   - P=? [F y_C = 1]              = 1.0   (spike always reaches C)
+//   - P=? [X X X y_C = 1]          = 1.0   (spike reaches C at exactly tick 3)
+//   - y_A=1 at tick 1, y_B=1 at tick 2, y_C=1 at tick 3
+//
+// Node name mapping (GUI label -> PRISM variables):
+//          Inp [Input]   ->  x_Inp
+//            A [Neuron]  ->  y_A, p_A
+//            B [Neuron]  ->  y_B, p_B
+//            C [Output]  ->  y_C, p_C
+//
+dtmc
+
+// Global neuron parameters (deterministic mode)
+const int P_rth = 100;
+const int P_rest = 0;
+const int P_reset = 0;
+const double r = 0.95;       // leak rate
+
+// Per-neuron potential bounds
+const int P_MIN_A = 0;
+const int P_MAX_A = 150;
+const int P_MIN_B = 0;
+const int P_MAX_B = 150;
+const int P_MIN_C = 0;
+const int P_MAX_C = 150;
+
+const int T_MAX = 10;
+
+// 1 threshold level => deterministic: fire iff potential > P_rth
+formula threshold1 = 100;
+
+// Synaptic weights (all excitatory, strong enough to fire in 1 tick)
+const int w_Inp_A = 110;
+const int w_A_B = 110;
+const int w_B_C = 110;
+
+// Spike propagation: neurons read y(source) directly (1-tick delay)
+// NO TRANSFER MODULES — this is the whole point of this proof.
+
+// Membrane potential update formulas
+// Each neuron's newPotential reads the OUTPUT VARIABLE of its presynaptic
+// neuron directly. PRISM evaluates this on current-state (pre-transition)
+// values, guaranteeing 1-tick delay.
+formula newPotential_A = max(P_MIN_A, min(P_MAX_A, floor(w_Inp_A * x_Inp + r * p_A)));
+formula newPotential_B = max(P_MIN_B, min(P_MAX_B, floor(w_A_B * y_A   + r * p_B)));
+formula newPotential_C = max(P_MIN_C, min(P_MAX_C, floor(w_B_C * y_B   + r * p_C)));
+
+// ── Input Module ──
+// Input fires on tick 0 only (Pulse duration=1)
+formula in_Inp_g0_fires = (step < 1);
+
+module GlobalClock
+  step : [0..T_MAX] init 0;
+  [tick] step < T_MAX -> (step' = step + 1);
+  [tick] step = T_MAX -> (step' = step);
+endmodule
+
+module Inputs
+  x_Inp : [0..1] init 0;
+
+  [tick] in_Inp_g0_fires  -> (x_Inp' = 1);
+  [tick] !in_Inp_g0_fires -> (x_Inp' = 0);
+endmodule
+
+// ── Neuron A ──
+// No refractory, 1 threshold level (deterministic)
+module NeuronA
+  y_A : [0..1] init 0;
+  p_A : [P_MIN_A..P_MAX_A] init 0;
+
+  // Below threshold: no spike
+  [tick] newPotential_A <= threshold1 -> (y_A' = 0) & (p_A' = newPotential_A);
+  // Above threshold: certain fire + reset
+  [tick] newPotential_A > threshold1  -> 1.0:(y_A' = 1) & (p_A' = P_reset);
+endmodule
+
+// ── Neuron B ──
+module NeuronB
+  y_B : [0..1] init 0;
+  p_B : [P_MIN_B..P_MAX_B] init 0;
+
+  [tick] newPotential_B <= threshold1 -> (y_B' = 0) & (p_B' = newPotential_B);
+  [tick] newPotential_B > threshold1  -> 1.0:(y_B' = 1) & (p_B' = P_reset);
+endmodule
+
+// ── Neuron C (output) ──
+module NeuronC
+  y_C : [0..1] init 0;
+  p_C : [P_MIN_C..P_MAX_C] init 0;
+
+  [tick] newPotential_C <= threshold1 -> (y_C' = 0) & (p_C' = newPotential_C);
+  [tick] newPotential_C > threshold1  -> 1.0:(y_C' = 1) & (p_C' = P_reset);
+endmodule
+
+// Spike count rewards
+rewards "spikes_C"
+  [tick] y_C = 1 : 1;
+endrewards
+
+// Labels for verification
+label "input_fires"  = x_Inp = 1;
+label "A_fires"      = y_A = 1;
+label "B_fires"      = y_B = 1;
+label "output_fires" = y_C = 1;

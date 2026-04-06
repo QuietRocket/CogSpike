@@ -1,0 +1,26 @@
+// Diagnostic properties for discretized model
+// Testing WTA dynamics and symmetry
+
+// 1. Loser silence (should be 1.0 for WTA, but we expect 0.0)
+P=? [ F G (y_N2=0) ]
+
+// 2. Winner persistence
+P=? [ G F "spike_N1" ]
+
+// 3. Check if ALL neurons persist (symmetric cycling hypothesis)
+P=? [ G F "spike_N2" ]
+
+// 4. Symmetry check: N3 should equal N2
+P=? [ G F "spike_N3" ]
+
+// 5. Symmetry check: N4 should equal N2
+P=? [ G F "spike_N4" ]
+
+// 6. Mutual exclusion in steady state
+P=? [ F G (y_N1 + y_N2 + y_N3 + y_N4 <= 1) ]
+
+// 7-10. Spike counts to compare dominance ratios
+R{"spike_N1_count"}=? [ C<=50 ]
+R{"spike_N2_count"}=? [ C<=50 ]
+R{"spike_N3_count"}=? [ C<=50 ]
+R{"spike_N4_count"}=? [ C<=50 ]

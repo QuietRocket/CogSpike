@@ -1,0 +1,21 @@
+// ── Loser Transient Activity ──────────────────────────────────────
+// P1: Loser N2 fires at least once in first 10 steps (transient activity)
+P=? [ F<=10 "spike6" ]
+
+// P2: Loser N3 fires at least once in first 10 steps
+P=? [ F<=10 "spike7" ]
+
+// ── Winner Persistence ───────────────────────────────────────────
+// P3: Winner N1 fires within 5 steps
+P=? [ F<=5 "spike5" ]
+
+// P4: Winner output O1 fires within 10 steps
+P=? [ F<=10 "spike9" ]
+
+// ── Expected spike counts (quantitative dominance) ───────────────
+R{"spike5_count"}=? [ C<=50 ]
+R{"spike6_count"}=? [ C<=50 ]
+R{"spike7_count"}=? [ C<=50 ]
+R{"spike9_count"}=? [ C<=50 ]
+R{"spike10_count"}=? [ C<=50 ]
+R{"spike11_count"}=? [ C<=50 ]

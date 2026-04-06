@@ -1,0 +1,117 @@
+// ============================================================================
+// PROOF 1 (COMPARISON): Same Chain Topology — WITH Transfer Modules
+// ============================================================================
+//
+// Topology: Input --> A --> B --> C (output)
+//
+// This model is IDENTICAL to chain_no_transfer.prism except it uses the old
+// transfer module pattern with z variables. Run the same properties on both
+// models — if the results match, transfer modules are provably redundant.
+//
+// Node name mapping (GUI label -> PRISM variables):
+//          Inp [Input]   ->  x_Inp
+//            A [Neuron]  ->  y_A, p_A
+//            B [Neuron]  ->  y_B, p_B
+//            C [Output]  ->  y_C, p_C
+//
+dtmc
+
+// Global neuron parameters (deterministic mode)
+const int P_rth = 100;
+const int P_rest = 0;
+const int P_reset = 0;
+const double r = 0.95;
+
+// Per-neuron potential bounds
+const int P_MIN_A = 0;
+const int P_MAX_A = 150;
+const int P_MIN_B = 0;
+const int P_MAX_B = 150;
+const int P_MIN_C = 0;
+const int P_MAX_C = 150;
+
+const int T_MAX = 10;
+
+// 1 threshold level => deterministic
+formula threshold1 = 100;
+
+// Synaptic weights
+const int w_Inp_A = 110;
+const int w_A_B = 110;
+const int w_B_C = 110;
+
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │  OLD STYLE: Potential formulas use TRANSFER VARIABLES (z) not y        │
+// │  z_A_B is a copy of y_A from the previous tick                         │
+// │  z_B_C is a copy of y_B from the previous tick                         │
+// └──────────────────────────────────────────────────────────────────────────┘
+formula newPotential_A = max(P_MIN_A, min(P_MAX_A, floor(w_Inp_A * x_Inp + r * p_A)));
+formula newPotential_B = max(P_MIN_B, min(P_MAX_B, floor(w_A_B * z_A_B   + r * p_B)));
+formula newPotential_C = max(P_MIN_C, min(P_MAX_C, floor(w_B_C * z_B_C   + r * p_C)));
+
+// ── Input Module ──
+formula in_Inp_g0_fires = (step < 1);
+
+module GlobalClock
+  step : [0..T_MAX] init 0;
+  [tick] step < T_MAX -> (step' = step + 1);
+  [tick] step = T_MAX -> (step' = step);
+endmodule
+
+module Inputs
+  x_Inp : [0..1] init 0;
+
+  [tick] in_Inp_g0_fires  -> (x_Inp' = 1);
+  [tick] !in_Inp_g0_fires -> (x_Inp' = 0);
+endmodule
+
+// ── Neuron A ──
+module NeuronA
+  y_A : [0..1] init 0;
+  p_A : [P_MIN_A..P_MAX_A] init 0;
+
+  [tick] newPotential_A <= threshold1 -> (y_A' = 0) & (p_A' = newPotential_A);
+  [tick] newPotential_A > threshold1  -> 1.0:(y_A' = 1) & (p_A' = P_reset);
+endmodule
+
+// ── Neuron B ──
+module NeuronB
+  y_B : [0..1] init 0;
+  p_B : [P_MIN_B..P_MAX_B] init 0;
+
+  [tick] newPotential_B <= threshold1 -> (y_B' = 0) & (p_B' = newPotential_B);
+  [tick] newPotential_B > threshold1  -> 1.0:(y_B' = 1) & (p_B' = P_reset);
+endmodule
+
+// ── Neuron C (output) ──
+module NeuronC
+  y_C : [0..1] init 0;
+  p_C : [P_MIN_C..P_MAX_C] init 0;
+
+  [tick] newPotential_C <= threshold1 -> (y_C' = 0) & (p_C' = newPotential_C);
+  [tick] newPotential_C > threshold1  -> 1.0:(y_C' = 1) & (p_C' = P_reset);
+endmodule
+
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │  TRANSFER MODULES — these are what we claim are redundant               │
+// │  Each z variable just copies y from the source neuron each tick         │
+// └──────────────────────────────────────────────────────────────────────────┘
+module Transfer_A_B
+  z_A_B : [0..1] init 0;
+  [tick] true -> (z_A_B' = y_A);
+endmodule
+
+module Transfer_B_C
+  z_B_C : [0..1] init 0;
+  [tick] true -> (z_B_C' = y_B);
+endmodule
+
+// Rewards and labels (identical to no-transfer version)
+rewards "spikes_C"
+  [tick] y_C = 1 : 1;
+endrewards
+
+label "input_fires"  = x_Inp = 1;
+label "A_fires"      = y_A = 1;
+label "B_fires"      = y_B = 1;
+label "output_fires" = y_C = 1;

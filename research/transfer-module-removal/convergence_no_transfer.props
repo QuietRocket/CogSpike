@@ -1,0 +1,38 @@
+// ============================================================================
+// Properties for convergence_no_transfer.prism
+// ============================================================================
+//
+// Timing:
+//   Step 0: initial
+//   Step 1: x_Inp1=1, x_Inp2=1  (both inputs fire)
+//   Step 2: y_A=1, y_B=1        (both neurons fire)
+//   Step 3: y_C=1               (C sees 55+55=110 > 100, fires)
+
+// ---------- REACHABILITY ----------
+
+// P1: Output neuron C eventually fires.
+// Expected: 1.0 (both A and B fire at step 2, C sees 55+55=110 > 100 at step 3)
+P=? [ F "output_fires" ]
+
+// ---------- EXACT TIMING ----------
+
+// P2: At step 2, both A and B fire simultaneously.
+// Expected: 1.0
+P=? [ X X "both_sources" ]
+
+// P3: At step 3, C fires (accumulates both inputs).
+// This is the critical coincidence detection test: C's newPotential = 55*y_A + 55*y_B.
+// Without transfer modules, y_A and y_B must both be 1 at the same evaluation.
+// Expected: 1.0
+P=? [ X X X "output_fires" ]
+
+// P4: C does NOT fire at step 2 (A and B haven't fired yet at step 1).
+// Expected: 1.0
+P=? [ X X !y_C=1 ]
+
+// ---------- COINCIDENCE DETECTION ----------
+
+// P5: Exactly 1 spike from C over 10 ticks.
+// Since leak=0 and inputs only pulse once, C fires exactly once.
+// Expected: 1
+R{"spikes_C"}=? [ C<=10 ]

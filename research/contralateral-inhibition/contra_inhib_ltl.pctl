@@ -1,0 +1,19 @@
+// ── Unbounded LTL: Winner persistence (GF) ───────────────────────
+// P1: Winner N1 keeps firing forever
+P=? [ G F "spike5" ]
+
+// P2: Winner output O1 keeps firing forever
+P=? [ G F "spike9" ]
+
+// ── Unbounded LTL: Loser silence (FG) ────────────────────────────
+// P3: Loser N2 eventually goes silent forever
+P=? [ F G (y6=0) ]
+
+// P4: Loser N3 eventually goes silent forever
+P=? [ F G (y7=0) ]
+
+// P5: Loser output O2 eventually goes silent forever
+P=? [ F G (y10=0) ]
+
+// P6: Loser output O3 eventually goes silent forever
+P=? [ F G (y11=0) ]
