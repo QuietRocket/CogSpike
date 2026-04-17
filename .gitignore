@@ -25,3 +25,5 @@ temp/
 # Research artifacts to exclude
 research/limits/experiments/
 research/limits/benchmark/
+
+deq/__pycache__/
