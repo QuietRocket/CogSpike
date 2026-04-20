@@ -23,13 +23,31 @@ def contralateral_inhibition(w12: float, w21: float, drive: float = 1.5):
     return W, I
 
 
-def negative_loop(w_xa: float, w_ai: float, w_ia: float, u: float = 1.0):
+def negative_loop(
+    w_xa: float,
+    w_ai: float,
+    w_ia: float,
+    u: float = 1.0,
+    w_aa: float = 0.0,
+    w_ii: float = 0.0,
+):
     """Activator-inhibitor negative-feedback loop with constant input u.
 
-    Row 0 = activator A (receives external drive w_xa * u and inhibition -w_ia).
-    Row 1 = inhibitor I (receives excitation w_ai from the activator).
+    Row 0 = activator A (receives external drive ``w_xa * u`` and
+    inhibition ``-w_ia`` from the inhibitor, plus optional self-excitation
+    ``w_aa``). Row 1 = inhibitor I (receives excitation ``w_ai`` from A,
+    plus optional self-inhibition ``-w_ii``).
+
+    The bare 2-population negative loop with no self-connections has
+    trace(J) = -2/tau at every fixed point, so Hopf bifurcation is
+    impossible and the activator-inhibitor population cannot oscillate on
+    its own. This mirrors the classical Wilson-Cowan result and is
+    resolved by including within-population recurrence (``w_aa > 0``),
+    which is the natural population-level analogue of lateral excitation
+    within the activator pool. ``w_aa`` defaults to zero so existing
+    callers see no behavior change.
     """
-    W = np.array([[0.0, -w_ia], [w_ai, 0.0]])
+    W = np.array([[w_aa, -w_ia], [w_ai, -w_ii]])
     I = np.array([w_xa * u, 0.0])
     return W, I
 

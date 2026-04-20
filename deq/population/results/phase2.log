@@ -1,0 +1,49 @@
+
+========================================================================
+Phase 2  bifurcation analysis (contralateral pitchfork + negative loop Hopf)
+========================================================================
+
+========================================================================
+Subtask 2A  symbolic pitchfork derivation and comparison with Phase 1
+========================================================================
+Symbolic pitchfork points: 1449
+  n_numerical_points: 215
+  n_symbolic_points: 1449
+  self_residual_max: 1.875721800104202e-12
+  self_residual_median: 3.3306690738754696e-16
+  geometric_max_distance: 0.03842982729662179
+  geometric_median_distance: 0.002089892161609193
+
+========================================================================
+Subtask 2B  negative-loop Hopf sweep + analytical curve
+========================================================================
+Analytical Hopf points: 1480
+Dispatching 2500 cells to 12 workers
+  250/2500 cells in 15.1s  (eta 136s)
+/Users/quietrocket/Documents/PhD/CogSpike/deq/population/wilson_cowan.py:25: RuntimeWarning: overflow encountered in exp
+  return 1.0 / (1.0 + np.exp(-self.k * (x - self.theta)))
+  500/2500 cells in 29.5s  (eta 118s)
+  750/2500 cells in 45.4s  (eta 106s)
+  1000/2500 cells in 60.0s  (eta 90s)
+  1250/2500 cells in 74.8s  (eta 75s)
+  1500/2500 cells in 89.8s  (eta 60s)
+  1750/2500 cells in 104.9s  (eta 45s)
+/Users/quietrocket/Documents/PhD/CogSpike/deq/population/wilson_cowan.py:25: RuntimeWarning: overflow encountered in exp
+  return 1.0 / (1.0 + np.exp(-self.k * (x - self.theta)))
+  2000/2500 cells in 120.1s  (eta 30s)
+/Users/quietrocket/Documents/PhD/CogSpike/deq/population/wilson_cowan.py:25: RuntimeWarning: overflow encountered in exp
+  return 1.0 / (1.0 + np.exp(-self.k * (x - self.theta)))
+/Users/quietrocket/Documents/PhD/CogSpike/deq/population/wilson_cowan.py:25: RuntimeWarning: overflow encountered in exp
+  return 1.0 / (1.0 + np.exp(-self.k * (x - self.theta)))
+  2250/2500 cells in 135.3s  (eta 15s)
+/Users/quietrocket/Documents/PhD/CogSpike/deq/population/wilson_cowan.py:25: RuntimeWarning: overflow encountered in exp
+  return 1.0 / (1.0 + np.exp(-self.k * (x - self.theta)))
+  2500/2500 cells in 150.3s  (eta 0s)
+Sweep complete in 150.5s
+Oscillation-boundary displacement: median 0.0560 (0.55 cells), max 0.6892 (6.75 cells)
+Linear-stability boundary displacement: median 0.0691 (0.68 cells), max 0.8473 (8.30 cells)
+Frequency median rel. err. (amp>0.1 cells): 9.61%
+
+========================================================================
+Phase 2 verdict: PASS
+========================================================================
