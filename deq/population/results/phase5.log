@@ -1,0 +1,34 @@
+
+========================================================================
+Phase 5  generalization to other archetypes
+========================================================================
+
+========================================================================
+Subtask 5A  simple series chain
+========================================================================
+  n=2: max rel err over w-sweep = 0.00e+00, median = 0.00e+00
+  n=3: max rel err over w-sweep = 1.43e-13, median = 1.88e-16
+  n=5: max rel err over w-sweep = 2.59e-12, median = 4.23e-14
+  n=10: max rel err over w-sweep = 9.45e-11, median = 6.88e-13
+5A done in 0.44s; pass=True
+
+========================================================================
+Subtask 5B  parallel composition
+========================================================================
+  n=2: FP err=0.00e+00, off-diag=0.00e+00, upper=0.00e+00, eigval err=0.00e+00
+  n=4: FP err=0.00e+00, off-diag=0.00e+00, upper=0.00e+00, eigval err=0.00e+00
+  n=8: FP err=0.00e+00, off-diag=0.00e+00, upper=0.00e+00, eigval err=0.00e+00
+5B done in 0.15s; pass=True
+
+========================================================================
+Subtask 5C  positive-loop saddle-node
+========================================================================
+  Analytical saddle-node weights (drive=0): [1.6818012949678403, 5.277826638795107]
+  Numerical FP-count transitions at w = [1.6755639097744361, 5.273308270676692]
+    analytical w_SN = 1.6818, nearest numerical = 1.6756, rel err = 0.37%
+    analytical w_SN = 5.2778, nearest numerical = 5.2733, rel err = 0.09%
+5C done in 1.43s; pass=True
+
+========================================================================
+Phase 5 verdict: PASS
+========================================================================
