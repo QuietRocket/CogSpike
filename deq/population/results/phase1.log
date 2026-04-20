@@ -1,0 +1,24 @@
+
+========================================================================
+Phase 1  spectral gap vs WTA on contralateral inhibition
+========================================================================
+  row 5/50 in 3.7s
+  row 10/50 in 7.3s
+  row 15/50 in 11.0s
+  row 20/50 in 14.7s
+  row 25/50 in 18.6s
+  row 30/50 in 22.4s
+  row 35/50 in 26.2s
+  row 40/50 in 29.9s
+  row 45/50 in 33.6s
+  row 50/50 in 37.4s
+Sweep complete in 37.4s
+Classification accuracy: 99.96%
+Diagonal pitchfork: w* = 1.000008, rho* = 0.499998, g = 1.000000
+Bifurcation curve: 215 points
+Boundary displacement: median 0.0527 (0.52 cells), max 0.1016 (1.00 cells)
+Dominant-real sign changes at every boundary transition: True
+
+========================================================================
+Phase 1 verdict: PASS
+========================================================================
