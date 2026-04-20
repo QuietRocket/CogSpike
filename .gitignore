@@ -26,4 +26,4 @@ temp/
 research/limits/experiments/
 research/limits/benchmark/
 
-deq/__pycache__/
+**/__pycache__/
