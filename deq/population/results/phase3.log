@@ -1,0 +1,36 @@
+
+========================================================================
+Phase 3  pole placement / inverse design
+========================================================================
+Achievable omega range at (w_xa=1.0, w_aa=2.5): [0.0413, 2.2257]
+Target set: [0.1, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 2.15]
+  omega*=0.100: w_ai=2.1699, w_ia=1.7287, branch=upper, residual=1.10e-15
+  omega*=0.300: w_ai=2.1344, w_ia=1.7461, branch=upper, residual=8.05e-16
+  omega*=0.500: w_ai=2.0691, w_ia=1.7830, branch=upper, residual=3.68e-13
+  omega*=0.700: w_ai=1.9818, w_ia=1.8448, branch=upper, residual=5.00e-16
+  omega*=1.000: w_ai=1.8218, w_ia=2.0075, branch=upper, residual=6.66e-16
+  omega*=1.500: w_ai=1.4606, w_ia=2.8176, branch=upper, residual=0.00e+00
+  omega*=2.000: w_ai=3.8537, w_ia=1.6495, branch=lower, residual=2.66e-15
+  omega*=2.150: w_ai=3.4468, w_ia=2.0574, branch=lower, residual=1.78e-14
+  omega*=0.100: |Im(lam)|=0.10000000 err=1.00e-13
+  omega*=0.300: |Im(lam)|=0.30000000 err=1.28e-15
+  omega*=0.500: |Im(lam)|=0.50000000 err=3.68e-13
+  omega*=0.700: |Im(lam)|=0.70000000 err=2.22e-16
+  omega*=1.000: |Im(lam)|=1.00000000 err=7.77e-16
+  omega*=1.500: |Im(lam)|=1.50000000 err=2.22e-16
+  omega*=2.000: |Im(lam)|=2.00000000 err=8.88e-16
+  omega*=2.150: |Im(lam)|=2.15000000 err=4.44e-15
+  omega*=0.100 (upper): measured=0.0251, amp=0.000, rel_err=74.87%, sustained=False
+  omega*=0.300 (upper): measured=0.0251, amp=0.002, rel_err=91.62%, sustained=False
+  omega*=0.500 (upper): measured=0.5243, amp=0.174, rel_err=4.85%, sustained=True
+  omega*=0.700 (upper): measured=0.7274, amp=0.153, rel_err=3.91%, sustained=True
+  omega*=1.000 (upper): measured=1.0163, amp=0.123, rel_err=1.63%, sustained=True
+  omega*=1.500 (upper): measured=1.5029, amp=0.083, rel_err=0.20%, sustained=True
+  omega*=2.000 (lower): measured=1.9250, amp=0.088, rel_err=3.75%, sustained=True
+  omega*=2.150 (lower): measured=2.1109, amp=0.067, rel_err=1.82%, sustained=True
+Simulation sweep: 2.4s
+Wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/population/results/pole_placement_table.csv
+
+========================================================================
+Phase 3 verdict: PARTIAL (linear: 8/8, simulation: 6/8 within 10%, 6/8 sustained)
+========================================================================
