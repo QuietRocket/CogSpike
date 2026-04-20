@@ -1,0 +1,33 @@
+
+========================================================================
+V0.1  Single uncoupled population, I = 2
+========================================================================
+
+========================================================================
+V0.2  Symmetric contralateral inhibition at low coupling
+========================================================================
+
+V0.1 results:
+  rho_analytical: 0.9820137900379085
+  rho_numerical: 0.9820137900379085
+  fp_error: 0.0
+  monotone: True
+  found: True
+  lambda_numeric: -1.0
+  lambda_analytical: -1.0
+  eig_error: 0.0
+  pass: True
+
+V0.2 results:
+  rho_star: [0.6625841928288004, 0.6625841928288004]
+  symmetry_error: 0.0
+  eig_real_min: -1.4471327604844149
+  eig_real_max: -0.5528672395155849
+  stable_re_lt_negpoint1: True
+  found: True
+  return_err_at_t10: 5.585176065709314e-05
+  pass: True
+
+========================================================================
+Phase 0 verdict: PASS
+========================================================================
