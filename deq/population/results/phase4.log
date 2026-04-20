@@ -1,0 +1,25 @@
+
+========================================================================
+Phase 4  cross-validation against discrete LI&F oracle
+========================================================================
+Loaded WC pitchfork: 1449 points
+
+========================================================================
+LI&F sweep
+========================================================================
+Dispatching 1600 LI&F cells to 12 workers
+  200/1600 cells in 0.3s  (eta 2s)
+  400/1600 cells in 0.4s  (eta 1s)
+  600/1600 cells in 0.4s  (eta 1s)
+  800/1600 cells in 0.4s  (eta 0s)
+  1000/1600 cells in 0.4s  (eta 0s)
+  1200/1600 cells in 0.4s  (eta 0s)
+  1400/1600 cells in 0.4s  (eta 0s)
+  1600/1600 cells in 0.4s  (eta 0s)
+LI&F sweep complete in 0.5s
+Bistable-WTA cells: 1156 / 1600
+Boundary: 135 cells; median displacement 0.6772 WC (5.42 LI&F), mean 0.6284, max 0.9316
+
+========================================================================
+Phase 4 verdict: FAIL
+========================================================================
