@@ -107,16 +107,25 @@ been charted by exhaustive simulation or model checking, rather than
 by the closed-form methods available for smooth neural models
 @GerstnerKistler2002 @DayanAbbott2001.
 
-The classical remedy is to work one level up. A population of LI\&F
-neurons with thresholds drawn from a distribution $p(theta)$ averages
-into a smooth firing-rate equation, with the cumulative threshold
-distribution playing the role of the gain function (#ref(<sec-wc>) gives
-the derivation). The non-smoothness is not papered over --- it is
-*averaged away* by the population. The resulting Wilson--Cowan ODE
-@WilsonCowan1972 is differentiable everywhere and admits the full
-classical toolkit. This note develops the spectral analysis of De
-Maria archetypes in this lifted framework and confronts its
-predictions with the discrete LI\&F simulator they came from.
+The classical remedy is to work one level up: *replace each node of
+an FCS archetype graph --- in FCS, a single LI\&F neuron --- with a
+population* of LI\&F neurons sharing input statistics but with firing
+thresholds drawn from a distribution $p(theta)$. The contralateral
+archetype's two-node graph thus becomes two populations, mutually
+inhibiting each other; the activator--inhibitor loop becomes two
+populations forming a negative-feedback loop; and so on. The topology
+is unchanged. What changes is the description of each node: a single
+Boolean spike $y_i in {0, 1}$ becomes a continuous firing rate
+$rho_i in [0, 1]$ (the fraction of population $i$'s neurons firing
+per unit time), and the cumulative threshold distribution averages
+the spike-reset non-smoothness into a smooth sigmoidal gain function
+(#ref(<sec-wc>) gives the derivation). The non-smoothness is not
+papered over --- it is *averaged away* by the population. The
+resulting Wilson--Cowan ODE @WilsonCowan1972 is differentiable
+everywhere and admits the full classical toolkit. This note develops
+the spectral analysis of De Maria archetypes in this lifted framework
+and confronts its predictions with the discrete LI\&F simulator they
+came from.
 
 == Hypotheses and headline results
 
@@ -289,11 +298,41 @@ in the equations of @eq-wc.
 == From topology to ODE
 
 FCS Fig. 1f shows two neurons each inhibiting the other, with
-external excitatory drive on both. At population scale the same
-topology applies, with $rho_1$ and $rho_2$ the firing rates of the
-two populations, mutual inhibition with weights $w_(12), w_(21) > 0$
-(both negated when entering the input to $f$), and symmetric drive
-$I$. Writing @eq-wc out longhand --- not as a matrix --- gives:
+external excitatory drive on both.
+
+#block(inset: (left: 14pt, top: 4pt, bottom: 4pt))[
+  *What "population" means here.* The contralateral archetype's
+  topology is a graph with two nodes and two directed inhibitory edges.
+  In the FCS formulation each node is a *single* LI\&F neuron with
+  Boolean output $y_i in {0, 1}$ per tick. In the lifted framework
+  *each node is a population* of $N$ LI\&F neurons (we take $N ->
+  infinity$ for the mean-field analysis) that share input statistics
+  but whose firing thresholds are drawn from a distribution $p(theta)$.
+  The graph itself is unchanged --- two nodes, two directed edges,
+  mutual inhibition --- but the description of each node is replaced:
+  a single Boolean spike becomes a continuous firing rate $rho_i in
+  [0, 1]$ (the fraction of population $i$'s neurons firing per unit
+  time). The edge weight $w_(12)$ that in FCS was the synaptic strength
+  between two single neurons now represents the aggregate inhibitory
+  impact of population $2$ on population $1$. *The behavioural primitive
+  the topology produces --- mutual inhibition selects a winner --- is a
+  property of the graph, not of whether each node holds one neuron or
+  $N$ neurons.* This is the scale invariance of archetypes: the
+  contralateral motif between two single neurons and between two
+  populations of neurons shares the same topology, the same WTA
+  mechanism, and the same pitchfork bifurcation structure. The
+  population framework does not change *what* the contralateral
+  archetype computes; it changes *how* that computation is described,
+  from discrete spiking dynamics to continuous rate dynamics, and in
+  doing so unlocks the smooth-vector-field analysis tools the hybrid
+  LI\&F model otherwise blocks.
+]
+
+At population scale, then, the same FCS Fig. 1f topology applies,
+with $rho_1$ and $rho_2$ the firing rates of the two populations,
+mutual inhibition with weights $w_(12), w_(21) > 0$ (both negated
+when entering the input to $f$), and symmetric drive $I$. Writing
+@eq-wc out longhand --- not as a matrix --- gives:
 $ tau dot(rho)_1 &= -rho_1 + f(I - w_(12) rho_2), \
   tau dot(rho)_2 &= -rho_2 + f(I - w_(21) rho_1). $ <eq-contra>
 The structure to notice: each population's input is its drive $I$
