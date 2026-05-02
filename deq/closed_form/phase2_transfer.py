@@ -43,10 +43,6 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-sys.stdout = io.TextIOWrapper(
-    sys.stdout.buffer, encoding=sys.stdout.encoding, line_buffering=True
-)
-
 from siegert import Siegert  # noqa: E402
 from transfer import (  # noqa: E402
     closed_loop_matrix,
