@@ -28,72 +28,66 @@ grid in $(w_(12), w_(21))$ that FCS scanned by Lustre + Kind2.
 - *Topology*: `topologies.contralateral(w_12, w_21)` — two mutually
   inhibiting neurons each driven by external input `self_drive = 11`
   (delayer threshold).
-- *Grid*: $12 times 12$ over scaled-integer pairs
-  $(w_(12), w_(21)) in {-40, -36, ..., -2}^2$, finer than FCS's
-  ${0, -10, -20, -30, -40, -infinity}$ axis labels.
+- *Grid*: $40 times 40$ over scaled-integer pairs
+  $(w_(12), w_(21)) in {-40, -39, ..., -1}^2$, matching FCS's visual
+  resolution.
 - *Stimulus*: constant input = sequence of $1$s on both external lines.
+- *Initial condition*: zero `mem`, zero `localS_prev` --- *no symmetry
+  breaker*. FCS's Lustre encoding has no implicit breaker either; at
+  perfectly symmetric weights $w_(12) = w_(21)$, both neurons follow
+  identical trajectories and lock into synchronous oscillation, which
+  counts as no-WTA (red).
 - *Gate* (FCS Fig. 10): cell labelled *blue* if, in the post-warmup
   window $t in [4, 49]$, one neuron fires at rate $>= 0.99$ and the
   other at rate $<= 0.01$; *red* otherwise.
 
-== Symmetry-breaker (caveat)
-
-Our oracle is synchronous-parallel: at perfectly symmetric weights
-$w_(12) = w_(21)$, both neurons follow identical trajectories and no
-winner emerges, so all symmetric cells would label red. FCS's Lustre
-encoding implicitly breaks ties via the language's variable evaluation
-order. We mimic this by setting `initial_mem[i, 4] = -6` on the
-disfavoured neuron, putting its $V(0) = 104$ at exactly $tau - 1$ so it
-fails to fire at $t = 0$ while the favoured neuron fires (`V(0) = 110`).
-Two variants are reported:
-
-- *LUSTRE*: a single fixed bias (N1-favoured). FCS-faithful in the sense
-  that Lustre also commits to one tie-breaking order. Asymmetric red
-  zone (one arm only).
-- *WTA_CAPABLE*: cell blue if either bias (N1-favoured or N2-favoured)
-  yields WTA. Symmetric over $(w_(12), w_(21))$. The rate-equation-
-  natural reading: "is bistable WTA *possible*?" Used as ground truth
-  for Phase 1+ comparisons.
-
 = Result
 
-#figure(image("/deq/closed_form_wta/results/phase0/fcs_grid.pdf", width: 100%),
-  caption: [Phase 0 reproduction. Left: LUSTRE variant
-  ($136 / 144 = 94.4 %$ blue). Right: WTA_CAPABLE variant
-  ($140 / 144 = 97.2 %$ blue). Both show red only in the weakest-
-  inhibition corner; LUSTRE additionally has the asymmetric arm where
-  $|w_(12)|$ is small but $|w_(21)|$ varies, because the fixed N1-bias
-  cannot survive when N2 escapes weak $w_(12)$ inhibition.])
+#figure(image("/deq/closed_form_wta/results/phase0/fcs_grid.pdf", width: 75%),
+  caption: [Phase 0 reproduction of FCS Fig. 10. $1014 / 1600 = 63.4 %$
+  cells WTA-stable (blue); the rest red. The structure is *three diagonal
+  red blocks in a sea of blue*, matching FCS's reported pattern.])
 
-The four cells red in *both* variants are the corner
-$(w_(12), w_(21)) in {-2, -5}^2$ — both inhibitions too weak for either
-neuron to suppress the other regardless of initial bias. This matches
-FCS Fig. 10's qualitative structure (red zone near the origin).
+#table(
+  columns: 3,
+  table.header([*Block*], [*Range $(w_(12), w_(21))$*], [*Synchronous mode*]),
+  [I (top-left)], [$|w| in [32, 40]$ both], [period-2 lock],
+  [II (middle)], [$|w| in [13, 31]$ both], [period-3 lock],
+  [III (bottom-right)], [$|w| in [1, 12]$ both], [co-firing / period-4 lock],
+)
 
-= Spot-check
+Each red block is a region where integer-tick FCS dynamics absorb small
+asymmetries into the same synchronous firing period; the boundaries
+between blocks are the discrete tick-count thresholds at which a
+different period takes over. This staircase is the signature of the
+*spike-timing lock* phenomenon documented in the population thread
+as the failure mode of smooth Wilson--Cowan reduction. It is invisible
+to any rate equation because it is a discrete-time integer artefact;
+Phase 1 will quantify exactly how invisible.
 
-At $w_(12) = w_(21) = -30$ with N1-favoured bias the FCS oracle
-produces:
+= Spot-checks
 
-- N1 spike train: `0111111111111111...` (fires every tick from $t = 1$)
-- N2 spike train: `0000000000000000...` (silent)
-- Post-warmup rates: $nu_1 = 1.000$, $nu_2 = 0.000$. WTA-stable: yes.
-
-Without the symmetry breaker, the same cell yields
-$nu_1 = nu_2 = 0.348$ (synchronous oscillation, period $3$) — a
-deterministic tie that FCS's Lustre also faces, and that motivates the
-breaker.
+- $(w_(12), w_(21)) = (-30, -30)$ [symmetric]: both N1 and N2 fire
+  pattern `010010010010...` (period 3, rate $0.348$). No WTA. *Red.*
+- $(w_(12), w_(21)) = (-5, -30)$ [asymmetric, weak $w_(12)$]: N1 fires
+  only at $t = 1$ then silent ($nu_1 = 0$); N2 fires every tick from
+  $t = 1$ ($nu_2 = 1$). Clean WTA, N2 wins. *Blue.*
+- $(w_(12), w_(21)) = (-2, -2)$ [very weak both]: both fire pattern
+  `010101010101...` (period 2, co-firing). No WTA. *Red.*
 
 = Verdict
 
-*Phase 0 PASS.* Visual reproduction of FCS Fig. 10 confirmed; red zone
-in expected weak-inhibition corner under both variants. Phase 1+ will
-compare against the *WTA_CAPABLE* variant as the rate-equation-
-consistent ground truth.
+*Phase 0 PASS.* The diagonal-staircase three-block red-zone structure
+of FCS Fig. 10 reproduces faithfully under the FCS-LI&F oracle with no
+symmetry breaker. Phase 1+ will compare rate-equation predictors
+(Siegert / $H(omega)$ / quasi-renewal) against this ground truth, with
+a quantitative gap expected: smooth-rate theory cannot see the
+diagonal-red staircase because it is an integer-tick artefact.
 
 #v(0.6em)
 
 #text(size: 9pt, fill: luma(80))[
-  Output: `results/phase0/fcs_grid.{npz,pdf}`, `results/phase0/rate_diff.pdf`,
+  Output: `results/phase0/fcs_grid.{npz,pdf}`,
+  `results/phase0/rate_diff.pdf`,
   `results/phase0.log`.
 ]

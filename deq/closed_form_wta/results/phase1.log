@@ -1,0 +1,18 @@
+Calibration (locked from closed_form/phase1):
+  alpha = 0.250000
+  beta = 0.004292
+  tau_m = 2.350449
+  tau_ref = 0.361064
+  r2 = 0.935714
+
+Siegert FP enumeration on 12x12 grid; p_thin=0.7, drive=11.0
+
+Siegert WTA-capable cells: 131/144
+  Jaccard vs Phase 0 WTA_CAPABLE: 0.936  (gate >= 0.70)
+  Jaccard vs Phase 0 LUSTRE:      0.935
+
+FP-count distribution: 0 FPs=0, 1 FP=98, 2 FPs=0, 3+ FPs=46
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase1/siegert_vs_fcs.pdf
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase1/siegert_spread.pdf
+
+Phase 1 PASS: Jaccard 0.936 >= 0.70 gate.

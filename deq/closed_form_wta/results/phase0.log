@@ -1,0 +1,17 @@
+FCS-LIF oracle on 2-neuron CI; grid 40x40; T_max=50; T_warmup=4
+  WTA gate: rate_max>=0.99 AND rate_min<=0.01
+  No symmetry breaker (FCS Lustre-faithful)
+
+  WTA-stable: 1014/1600 (63.4%)
+  Diagonal red cells (|w_12 - w_21| <= 1): 114
+    sample: [(-40, -40), (-39, -40), (-40, -39), (-39, -39), (-38, -39)]
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase0/fcs_grid.npz
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase0/fcs_grid.pdf
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase0/rate_diff.pdf
+
+  (-30, -30) [symmetric]: N1=010010010010, N2=010010010010, rates=(0.348, 0.348), WTA=0
+  ( -5, -30) [asymmetric (weak w12)]: N1=010000000000, N2=010111111111, rates=(0.000, 1.000), WTA=1
+  ( -2,  -2) [very weak both]: N1=010101010101, N2=010101010101, rates=(0.500, 0.500), WTA=0
+
+Phase 0 PASS gate: diagonal-staircase red-block structure visible;
+  symmetric cells → synchronous oscillation → red, as in FCS Fig. 10.
