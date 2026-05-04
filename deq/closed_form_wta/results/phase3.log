@@ -1,0 +1,16 @@
+Calibration (locked): {'alpha': 0.2499999999999715, 'beta': 0.004291679302919695, 'tau_m': 2.3504490565989054, 'tau_ref': 0.36106400390347276}
+
+Quasi-renewal sweep on 40x40 grid; N sweep: [50, 100, 500, 2000]; T=200; init_A=(0.5, 0.1)
+WTA gate: rate_max - rate_min >= 0.3 (post-warmup window [t=50, T=200])
+
+  N=  50: blue=1296/1600, J(FCS)=0.701, J(Siegert)=0.873, elapsed 20.8s
+  N= 100: blue=1399/1600, J(FCS)=0.675, J(Siegert)=0.943, elapsed 21.3s
+  N= 500: blue=1433/1600, J(FCS)=0.667, J(Siegert)=0.966, elapsed 21.0s
+  N=2000: blue=1427/1600, J(FCS)=0.662, J(Siegert)=0.963, elapsed 21.2s
+
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase3/qr_n_sweep.pdf
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase3/qr_jaccard_vs_N.pdf
+
+Phase 3 verdict:
+  At N=2000 (~mean field): J(FCS)=0.662, J(Siegert)=0.963
+  PASS (mean-field convergence): QR at N=2000 matches Siegert mean-field at J=0.963 >= 0.85.
