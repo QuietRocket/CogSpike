@@ -1,0 +1,20 @@
+Calibration (locked):
+  alpha = 0.250000
+  beta = 0.004292
+  tau_m = 2.350449
+  tau_ref = 0.361064
+
+H(omega) latency-gate reading on 40x40 grid; |Re(lambda)| gate = 1/4 = 0.250
+
+Gate sweep (|Re(lambda)| threshold vs Jaccard with FCS):
+  best: thresh=0.200, jaccard=0.687
+
+H-gate at threshold 0.250 (1/4):
+  H-gate blue cells: 1191/1600
+  Jaccard vs FCS: 0.677  (gate >= 0.70)
+  Phase 1 Siegert Jaccard was: 0.680
+  Improvement over Phase 1: -0.003
+
+  wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase2/h_gate_vs_fcs.pdf
+
+Phase 2 PARTIAL (J=0.677, improvement -0.003); latency gate alone insufficient.
