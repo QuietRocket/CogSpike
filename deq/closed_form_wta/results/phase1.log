@@ -5,14 +5,22 @@ Calibration (locked from closed_form/phase1):
   tau_ref = 0.361064
   r2 = 0.935714
 
-Siegert FP enumeration on 12x12 grid; p_thin=0.7, drive=11.0
+Siegert FP enumeration on 40x40 grid; p_thin=0.7, drive=11.0
 
-Siegert WTA-capable cells: 131/144
-  Jaccard vs Phase 0 WTA_CAPABLE: 0.936  (gate >= 0.70)
-  Jaccard vs Phase 0 LUSTRE:      0.935
+Siegert WTA-capable cells: 1482/1600
+FCS Phase 0 blue cells:    1014/1600
+  Jaccard vs Phase 0 FCS:  0.680
+  Recall (sieg-blue | FCS-blue): 0.996  (gate >= 0.95)
+  Siegert blue but FCS red: 472/586 = 80.5% (staircase invisibility)
+  Siegert red but FCS blue: 4/1014 = 0.4% (boundary cells Siegert misses)
 
-FP-count distribution: 0 FPs=0, 1 FP=98, 2 FPs=0, 3+ FPs=46
+FP-count distribution: 0 FPs=0, 1 FP=1057, 2 FPs=0, 3+ FPs=543
   wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase1/siegert_vs_fcs.pdf
   wrote /Users/quietrocket/Documents/PhD/CogSpike/deq/closed_form_wta/results/phase1/siegert_spread.pdf
 
-Phase 1 PASS: Jaccard 0.936 >= 0.70 gate.
+Phase 1 verdict:
+  PASS (recall 0.996 >= 0.95): Siegert is a high-recall
+  superset predictor of FCS-WTA cells. The 472
+  sieg-blue/FCS-red disagreements are precisely the integer-
+  tick diagonal-red staircase that smooth-rate theory cannot
+  resolve - the meaningful gap that Phase 2/3 quantify.

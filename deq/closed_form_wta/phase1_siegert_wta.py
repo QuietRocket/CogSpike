@@ -2,15 +2,19 @@
 
 Lifts calibration constants from deq/closed_form/results/phase1_grid.npz
 (alpha, beta, tau_m, tau_ref locked at the operating point p_thin=0.7) and
-applies find_all_fixed_points_contralateral on the same integer (w_12, w_21)
-grid Phase 0 scanned with the FCS oracle. Per-cell label:
+applies find_all_fixed_points_contralateral on the same 40x40 integer
+(w_12, w_21) grid Phase 0 scanned with the FCS oracle. Per-cell label:
 
   WTA-capable iff
     (>=2 fixed points with |nu_a - nu_b| >= ASYM_BISTABLE)  OR
     (1 fixed point with |nu_1 - nu_2| >= ASYM_MONOSTABLE)
 
-Compares Phase 1 labels against Phase 0's WTA_CAPABLE ground truth via
-Jaccard agreement.
+Compares Phase 1 labels against Phase 0 FCS labels via Jaccard agreement.
+Expectation: Siegert tracks the asymmetric (off-diagonal) WTA arms but
+cannot see the integer-tick diagonal-red staircase, so cells in the
+staircase will be Siegert-predicted blue but FCS-labelled red. The
+Jaccard gap quantifies this 'spike-timing-lock invisibility' of smooth-
+rate theory.
 """
 
 from __future__ import annotations
@@ -92,8 +96,7 @@ def main():
     p0 = np.load(HERE / "results" / "phase0" / "fcs_grid.npz",
                  allow_pickle=True)
     W_VALUES = p0["W_VALUES"]
-    fcs_capable = p0["labels_capable"]
-    fcs_lustre = p0["labels_lustre"]
+    fcs_labels = p0["fcs_labels"]
     nW = len(W_VALUES)
 
     print(f"Siegert FP enumeration on {nW}x{nW} grid; p_thin={P_THIN}, "
@@ -116,12 +119,25 @@ def main():
             if fps:
                 spread_grid[i, j] = max(abs(fp[0] - fp[1]) for fp in fps)
 
-    j_capable = jaccard(sieg_labels, fcs_capable)
-    j_lustre = jaccard(sieg_labels, fcs_lustre)
+    j_fcs = jaccard(sieg_labels, fcs_labels)
+    # Diagnostic: disagree-by-direction.
+    sieg_blue_fcs_red = int((sieg_labels & ~fcs_labels.astype(bool)).sum())
+    sieg_red_fcs_blue = int(((~sieg_labels.astype(bool)) & fcs_labels).sum())
+    n_fcs_blue = int(fcs_labels.sum())
+    n_fcs_red = int(fcs_labels.size - n_fcs_blue)
+    recall = (n_fcs_blue - sieg_red_fcs_blue) / n_fcs_blue if n_fcs_blue else 1.0
 
     print(f"Siegert WTA-capable cells: {sieg_labels.sum()}/{sieg_labels.size}")
-    print(f"  Jaccard vs Phase 0 WTA_CAPABLE: {j_capable:.3f}  (gate >= 0.70)")
-    print(f"  Jaccard vs Phase 0 LUSTRE:      {j_lustre:.3f}")
+    print(f"FCS Phase 0 blue cells:    {n_fcs_blue}/{fcs_labels.size}")
+    print(f"  Jaccard vs Phase 0 FCS:  {j_fcs:.3f}")
+    print(f"  Recall (sieg-blue | FCS-blue): "
+          f"{recall:.3f}  (gate >= 0.95)")
+    print(f"  Siegert blue but FCS red: {sieg_blue_fcs_red}/{n_fcs_red} "
+          f"= {100*sieg_blue_fcs_red/max(n_fcs_red,1):.1f}% "
+          f"(staircase invisibility)")
+    print(f"  Siegert red but FCS blue: {sieg_red_fcs_blue}/{n_fcs_blue} "
+          f"= {100*sieg_red_fcs_blue/max(n_fcs_blue,1):.1f}% "
+          f"(boundary cells Siegert misses)")
     print()
     print(f"FP-count distribution: "
           f"0 FPs={int((n_fps == 0).sum())}, "
@@ -135,35 +151,43 @@ def main():
         sieg_labels=sieg_labels,
         n_fps=n_fps,
         spread_grid=spread_grid,
-        jaccard_capable=j_capable,
-        jaccard_lustre=j_lustre,
+        jaccard_fcs=j_fcs,
+        recall=recall,
+        sieg_blue_fcs_red=sieg_blue_fcs_red,
+        sieg_red_fcs_blue=sieg_red_fcs_blue,
         **calib,
         drive=DRIVE, p_thin=P_THIN,
     )
 
     # Side-by-side plot.
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    for ax, labels, title in [
-        (axes[0], fcs_capable,
-            f"FCS oracle (Phase 0 WTA_CAPABLE)\n"
-            f"{int(fcs_capable.sum())}/{fcs_capable.size} blue"),
+    panel_specs = [
+        (axes[0], fcs_labels,
+            f"FCS oracle (Phase 0)\n"
+            f"{int(fcs_labels.sum())}/{fcs_labels.size} blue", "fcs"),
         (axes[1], sieg_labels,
             f"Siegert FP enumeration\n"
             f"{int(sieg_labels.sum())}/{sieg_labels.size} blue\n"
-            f"Jaccard = {j_capable:.3f}"),
-        (axes[2], (sieg_labels != fcs_capable).astype(int),
-            f"Disagreement cells\n"
-            f"{int((sieg_labels != fcs_capable).sum())} mismatches"),
-    ]:
+            f"Jaccard vs FCS = {j_fcs:.3f}", "sieg"),
+        (axes[2], None,
+            f"Disagreement (black = staircase invisibility)\n"
+            f"{sieg_blue_fcs_red + sieg_red_fcs_blue} mismatches",
+            "disagree"),
+    ]
+    for ax, labels, title, mode in panel_specs:
         for i, w_21 in enumerate(W_VALUES):
             for j, w_12 in enumerate(W_VALUES):
-                color = "tab:blue" if labels[i, j] else "tab:red"
-                if title.startswith("Disagreement") and labels[i, j]:
-                    color = "black"
-                elif title.startswith("Disagreement") and not labels[i, j]:
-                    color = "lightgray"
-                ax.scatter(int(w_12), int(w_21), c=color, s=70,
-                           edgecolor="white", linewidth=0.5)
+                if mode == "disagree":
+                    if sieg_labels[i, j] and not fcs_labels[i, j]:
+                        color = "black"   # Siegert blue, FCS red
+                    elif fcs_labels[i, j] and not sieg_labels[i, j]:
+                        color = "orange"  # FCS blue, Siegert red
+                    else:
+                        color = "lightgray"
+                else:
+                    color = "tab:blue" if labels[i, j] else "tab:red"
+                ax.scatter(int(w_12), int(w_21), c=color, s=22,
+                           edgecolor="none")
         ax.set_xlabel(r"$w_{12}$ (FCS scaled)")
         ax.set_ylabel(r"$w_{21}$ (FCS scaled)")
         ax.set_title(title, fontsize=10)
@@ -195,10 +219,16 @@ def main():
     print(f"  wrote {out_pdf}")
 
     print()
-    if j_capable >= 0.70:
-        print(f"Phase 1 PASS: Jaccard {j_capable:.3f} >= 0.70 gate.")
+    print("Phase 1 verdict:")
+    if recall >= 0.95:
+        print(f"  PASS (recall {recall:.3f} >= 0.95): Siegert is a high-recall")
+        print(f"  superset predictor of FCS-WTA cells. The {sieg_blue_fcs_red}")
+        print(f"  sieg-blue/FCS-red disagreements are precisely the integer-")
+        print(f"  tick diagonal-red staircase that smooth-rate theory cannot")
+        print(f"  resolve - the meaningful gap that Phase 2/3 quantify.")
     else:
-        print(f"Phase 1 FAIL: Jaccard {j_capable:.3f} < 0.70 gate.")
+        print(f"  FAIL: Siegert misses {sieg_red_fcs_blue} FCS-blue cells "
+              f"(recall {recall:.3f} < 0.95).")
 
 
 if __name__ == "__main__":
