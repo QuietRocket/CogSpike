@@ -1,0 +1,33 @@
+Phase 2: T_pred = 2*pi / |Im(lambda)| on 40 x 40 grid
+  spiral cells: 1440 / 1600
+  cells with finite T_pred: 1440
+  T_pred quantiles (across valid cells): min=9.27, med=14.96, mean=214.91, max=24928.97
+
+T_pred period-4 gate at tol=0.5:
+  blue cells: 0/1600
+  Jaccard vs FCS strict_p5: 0.000
+
+Best tolerance sweep: tol=8.00, Jaccard=0.238
+
+Over strict-P5 cells (445):
+  mean |T_pred - 4| = 9.08 ticks
+  mean T_pred / 4   = 3.27
+
+Over FCS-period=4 cells (498):
+  mean T_pred / 4   = 3.39
+
+FCS default cell (w_IA=-11, w_XA=11):
+  T_pred = 15.917 ticks (FCS measured period = 4)
+  ratio = T_pred / 4 = 3.98
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase2/period_predicted_vs_4.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase2/T_pred_vs_FCS_period.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase2/tol_sweep.pdf
+
+Phase 2 verdict:
+  Default-cell T_pred (15.9) is 4.0× the FCS measured period 4.
+  Single-pole H(ω) systematically over-estimates the ringing
+  period — likely because the FCS 5-tap windowed integrator
+  introduces faster effective dynamics than a single-pole
+  low-pass with τ_m=2.35 captures. Best tolerance 8.00
+  gives Jaccard 0.238, vs strict-tol Jaccard 0.000.
