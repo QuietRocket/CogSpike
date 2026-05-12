@@ -1,0 +1,39 @@
+Calibration: alpha=0.2500 beta=0.0043
+T=200, T_warmup=50, asym_gate=0.3
+N_pop sweep: [50, 100, 500, 2000]
+
+QR sweep on 4x5x40 cells; drive_bump=1...
+
+  N_pop=  50, N_neurons= 2: blue 28/40, J(FCS)=0.310, J(Sieg)=0.933, elapsed 0.6s
+  N_pop=  50, N_neurons= 3: blue  7/40, J(FCS)=0.143, J(Sieg)=0.241, elapsed 0.7s
+  N_pop=  50, N_neurons= 4: blue  2/40, J(FCS)=0.000, J(Sieg)=0.071, elapsed 0.7s
+  N_pop=  50, N_neurons= 6: blue  0/40, J(FCS)=0.000, J(Sieg)=0.000, elapsed 0.9s
+  N_pop=  50, N_neurons=10: blue  0/40, J(FCS)=0.000, J(Sieg)=0.000, elapsed 1.2s
+  N_pop= 100, N_neurons= 2: blue 30/40, J(FCS)=0.290, J(Sieg)=1.000, elapsed 0.6s
+  N_pop= 100, N_neurons= 3: blue 18/40, J(FCS)=0.174, J(Sieg)=0.621, elapsed 0.7s
+  N_pop= 100, N_neurons= 4: blue 14/40, J(FCS)=0.000, J(Sieg)=0.500, elapsed 0.7s
+  N_pop= 100, N_neurons= 6: blue  9/40, J(FCS)=0.133, J(Sieg)=0.360, elapsed 0.9s
+  N_pop= 100, N_neurons=10: blue  2/40, J(FCS)=0.000, J(Sieg)=0.091, elapsed 1.3s
+  N_pop= 500, N_neurons= 2: blue 30/40, J(FCS)=0.290, J(Sieg)=1.000, elapsed 0.6s
+  N_pop= 500, N_neurons= 3: blue 25/40, J(FCS)=0.308, J(Sieg)=0.862, elapsed 0.7s
+  N_pop= 500, N_neurons= 4: blue 22/40, J(FCS)=0.120, J(Sieg)=0.786, elapsed 0.7s
+  N_pop= 500, N_neurons= 6: blue 20/40, J(FCS)=0.167, J(Sieg)=0.800, elapsed 0.9s
+  N_pop= 500, N_neurons=10: blue 17/40, J(FCS)=0.000, J(Sieg)=0.773, elapsed 1.3s
+  N_pop=2000, N_neurons= 2: blue 30/40, J(FCS)=0.290, J(Sieg)=1.000, elapsed 0.6s
+  N_pop=2000, N_neurons= 3: blue 26/40, J(FCS)=0.296, J(Sieg)=0.897, elapsed 0.7s
+  N_pop=2000, N_neurons= 4: blue 24/40, J(FCS)=0.111, J(Sieg)=0.857, elapsed 0.7s
+  N_pop=2000, N_neurons= 6: blue 22/40, J(FCS)=0.154, J(Sieg)=0.880, elapsed 0.9s
+  N_pop=2000, N_neurons=10: blue 18/40, J(FCS)=0.000, J(Sieg)=0.818, elapsed 1.3s
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase3/qr_grid_multi.npz
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase3/qr_n_sweep_multi.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase3/qr_jaccard_vs_Npop_per_N.pdf
+
+Phase 3 verdict:
+  N_neurons= 2, N_pop=2000: J(FCS)=0.290, J(Siegert)=1.000
+  N_neurons= 3, N_pop=2000: J(FCS)=0.296, J(Siegert)=0.897
+  N_neurons= 4, N_pop=2000: J(FCS)=0.111, J(Siegert)=0.857
+  N_neurons= 6, N_pop=2000: J(FCS)=0.154, J(Siegert)=0.880
+  N_neurons=10, N_pop=2000: J(FCS)=0.000, J(Siegert)=0.818
+
+  PASS (QR -> Siegert mean-field convergence): mean J(QR_N=2000, Siegert) = 0.890 >= 0.70.
