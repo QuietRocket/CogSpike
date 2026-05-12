@@ -14,6 +14,6 @@ typst compile phase0_report.typ results/phase0_report.pdf
 typst compile phase1_report.typ results/phase1_report.pdf
 typst compile phase2_report.typ results/phase2_report.pdf
 typst compile phase3_report.typ results/phase3_report.pdf
-typst compile note/closed_form_wta_multi_note.typ note/closed_form_wta_multi_note.pdf
+typst compile note/closed_form_wta_multi_note.typ note/closed_form_wta_multi_note.pdf --root .
 
 echo "All phases complete. Final note: note/closed_form_wta_multi_note.pdf"
