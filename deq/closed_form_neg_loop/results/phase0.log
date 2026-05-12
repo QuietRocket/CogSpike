@@ -1,0 +1,31 @@
+/Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/phase0_fcs_baseline.py:187: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` instead.
+  cmap = plt.cm.get_cmap("viridis", 12)
+FCS-LIF oracle on 2-neuron negative loop; grid 40 x 40 (w_IA x w_XA); w_AI fixed at 11
+  T_max=64, T_warmup=16
+  strict_p5: A's spikes match cyclic rotation of '1100'
+  broad_osc: any regular period in [2, 12] with mixed 1/0
+
+  strict_p5: 445/1600 (27.8%)
+  broad_osc: 946/1600 (59.1%)
+  period histogram:
+    period= 1:  654 cells
+    period= 2:    8 cells
+    period= 3:  149 cells
+    period= 4:  498 cells
+    period= 5:  207 cells
+    period= 6:   84 cells
+
+  FCS default cell (w_IA=-11, w_XA=11): strict_p5=1, period=4
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase0/fcs_grid.npz
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase0/prop5_strict.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase0/osc_broad.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase0/period_map.pdf
+
+  (-11, 11) [FCS default             ]: A=011001100110011001100110, I=001100110011001100110011, period=0
+  (-20, 11) [Appendix A.3 suggestion ]: A=011000110001100011000110, I=001100011000110001100011, period=0
+  ( -5, 11) [weak inhibition         ]: A=011001100110011001100110, I=001100110011001100110011, period=0
+  (-40, 40) [strong both             ]: A=011001100110011001100110, I=001100110011001100110011, period=0
+  ( -1,  1) [very weak both          ]: A=000000000000000000000000, I=000000000000000000000000, period=0
+
+Phase 0 PASS gate: FCS default cell reproduces Property 5 (period-4 '1100' pattern).
