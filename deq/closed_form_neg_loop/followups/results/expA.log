@@ -1,0 +1,39 @@
+Static calibration (from closed_form_wta phase1):
+  alpha = 0.250000
+  beta = 0.004292
+  tau_m = 2.350449
+  tau_ref = 0.361064
+
+Bode sweep on isolated FCS neuron, 12 frequencies, T_sim=4000, n_trials=4
+  AC input: Bern(p_thin*(1 + eps*sin(omega t))), p_thin=0.7, eps=0.2
+
+  omega = 0.050: |R| = 0.1352 +/- 0.0134, DC_rate = 0.701, |H| = 0.9659, phase = -4.2 deg
+  omega = 0.100: |R| = 0.1286 +/- 0.0056, DC_rate = 0.704, |H| = 0.9187, phase = -8.4 deg
+  omega = 0.200: |R| = 0.1126 +/- 0.0095, DC_rate = 0.695, |H| = 0.8042, phase = -13.4 deg
+  omega = 0.300: |R| = 0.0758 +/- 0.0067, DC_rate = 0.704, |H| = 0.5412, phase = -21.8 deg
+  omega = 0.400: |R| = 0.0522 +/- 0.0012, DC_rate = 0.706, |H| = 0.3727, phase = -21.1 deg
+  omega = 0.550: |R| = 0.0052 +/- 0.0004, DC_rate = 0.698, |H| = 0.0368, phase = -36.1 deg
+  omega = 0.700: |R| = 0.0232 +/- 0.0017, DC_rate = 0.704, |H| = 0.1654, phase = +138.0 deg
+  omega = 0.850: |R| = 0.0321 +/- 0.0039, DC_rate = 0.699, |H| = 0.2294, phase = +127.8 deg
+  omega = 1.000: |R| = 0.0190 +/- 0.0005, DC_rate = 0.703, |H| = 0.1358, phase = +124.3 deg
+  omega = 1.200: |R| = 0.0071 +/- 0.0007, DC_rate = 0.699, |H| = 0.0511, phase = -66.2 deg
+  omega = 1.400: |R| = 0.0197 +/- 0.0013, DC_rate = 0.696, |H| = 0.1410, phase = -81.0 deg
+  omega = 1.600: |R| = 0.0105 +/- 0.0007, DC_rate = 0.699, |H| = 0.0750, phase = -88.6 deg
+
+Single-pole fit |H(omega)|^2 = g^2 / (1 + omega^2 tau^2):
+  g_fit   = 1.0175
+  tau_fit = 5.0178 ticks    (static tau_m = 2.3504)
+  R^2     = 0.9693
+  ratio   tau_fit / tau_static = 2.1348
+
+FCS default cell (w_IA=-11, w_XA=11):
+  Phase 2 static    T_pred = 15.92 ticks (FCS = 4)
+  Recalibrated     T_pred = 33.98 ticks (ratio 8.49)
+  Over FCS-period-4 cells (498):
+    static  mean T_pred / 4 = 3.39
+    recal   mean T_pred / 4 = 7.25
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/followups/results/expA/bode_fit.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/followups/results/expA/recal_T_pred.pdf
+
+Experiment A PARTIAL: recalibrated default-cell T_pred = 33.98, off by 29.98 from FCS period 4. tau_fit = 5.018 vs the factor-of-4 implied tau_static/4 = 0.588.
