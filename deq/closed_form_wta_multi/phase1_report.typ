@@ -116,12 +116,12 @@ theory misses (FCS-blue, Siegert-red).
 
 == Recall by $N$ at `drive_bump = 1`
 
-Recall = $|"Siegert-blue" sect "FCS-blue"| \/ |"FCS-blue"|$:
+Recall = $|"Siegert-blue" inter "FCS-blue"| \/ |"FCS-blue"|$:
 
 #table(
   columns: 4,
   inset: 5pt,
-  table.header([*$N$*], [*FCS-blue (margin)*], [*Sieg $sect$ FCS*], [*Recall*]),
+  table.header([*$N$*], [*FCS-blue (margin)*], [*Sieg $inter$ FCS*], [*Recall*]),
   [2],  [10], [$approx 9$], [0.90],
   [3],  [9],  [$approx 8$], [0.89],
   [4],  [6],  [$approx 3$], [0.50],

@@ -8,7 +8,7 @@ QR sweep on 4x5x40 cells; drive_bump=1...
   N_pop=  50, N_neurons= 3: blue  7/40, J(FCS)=0.143, J(Sieg)=0.241, elapsed 0.7s
   N_pop=  50, N_neurons= 4: blue  2/40, J(FCS)=0.000, J(Sieg)=0.071, elapsed 0.7s
   N_pop=  50, N_neurons= 6: blue  0/40, J(FCS)=0.000, J(Sieg)=0.000, elapsed 0.9s
-  N_pop=  50, N_neurons=10: blue  0/40, J(FCS)=0.000, J(Sieg)=0.000, elapsed 1.2s
+  N_pop=  50, N_neurons=10: blue  0/40, J(FCS)=0.000, J(Sieg)=0.000, elapsed 1.3s
   N_pop= 100, N_neurons= 2: blue 30/40, J(FCS)=0.290, J(Sieg)=1.000, elapsed 0.6s
   N_pop= 100, N_neurons= 3: blue 18/40, J(FCS)=0.174, J(Sieg)=0.621, elapsed 0.7s
   N_pop= 100, N_neurons= 4: blue 14/40, J(FCS)=0.000, J(Sieg)=0.500, elapsed 0.7s
@@ -21,7 +21,7 @@ QR sweep on 4x5x40 cells; drive_bump=1...
   N_pop= 500, N_neurons=10: blue 17/40, J(FCS)=0.000, J(Sieg)=0.773, elapsed 1.3s
   N_pop=2000, N_neurons= 2: blue 30/40, J(FCS)=0.290, J(Sieg)=1.000, elapsed 0.6s
   N_pop=2000, N_neurons= 3: blue 26/40, J(FCS)=0.296, J(Sieg)=0.897, elapsed 0.7s
-  N_pop=2000, N_neurons= 4: blue 24/40, J(FCS)=0.111, J(Sieg)=0.857, elapsed 0.7s
+  N_pop=2000, N_neurons= 4: blue 24/40, J(FCS)=0.111, J(Sieg)=0.857, elapsed 0.8s
   N_pop=2000, N_neurons= 6: blue 22/40, J(FCS)=0.154, J(Sieg)=0.880, elapsed 0.9s
   N_pop=2000, N_neurons=10: blue 18/40, J(FCS)=0.000, J(Sieg)=0.818, elapsed 1.3s
 
