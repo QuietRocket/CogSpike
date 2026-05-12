@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-PYTHON=../closed_form/.venv/bin/python3
+PYTHON=../.venv/bin/python3
 
 mkdir -p results
 

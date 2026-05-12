@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-PYTHON=.venv/bin/python3
+PYTHON=../.venv/bin/python3
 
 mkdir -p results
 $PYTHON phase0_infrastructure.py 2>&1 | tee results/phase0.log
