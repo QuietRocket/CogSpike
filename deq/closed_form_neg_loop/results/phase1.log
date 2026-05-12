@@ -1,0 +1,31 @@
+/Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form/transfer.py:77: RuntimeWarning: invalid value encountered in scalar multiply
+  return float((nu ** 2) * siegert.tau_m * math.sqrt(math.pi) / sigma * bracket)
+Calibration (locked from closed_form/phase1):
+  alpha = 0.250000
+  beta = 0.004292
+  tau_m = 2.350449
+  tau_ref = 0.361064
+  r2 = 0.935714
+
+Siegert FP + Jacobian on 40 x 40 grid; w_AI=11, p_thin=0.7
+
+FP convergence: 1600/1600 cells
+
+Eigenvalue census (cells with FP):
+  complex spiral (Im!=0): 1440 / 1600 (90.0%)
+  unstable (Re > 0):      0 / 1600 (0.0%)
+  stable spiral (Re<0, Im!=0): 1440
+
+Spiral-blue cells: 1440 / 1600
+  Jaccard vs FCS strict_p5: 0.309
+  Jaccard vs FCS broad_osc: 0.657
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase1/hopf_vs_fcs.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase1/eig_spectrum.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase1/im_lambda_heatmap.pdf
+FCS default cell (w_IA=-11, w_XA=11):
+  FP = (0.3520, 0.1793)
+  eigs = (-0.4255 + +0.3947i, -0.4255 + -0.3947i)
+  spiral_blue = 1
+
+Phase 1 PASS gate: FCS default cell is a stable spiral with Im(λ) > 0 (decaying ringing). The rate-equation FP is linearly stable; Property 5 lives beyond what mean-field rate theory can predict — Phase 2 will check whether the ringing FREQUENCY matches FCS's period-4 anyway.
