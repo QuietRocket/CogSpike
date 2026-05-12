@@ -1,0 +1,52 @@
+Calibration: alpha=0.2500 beta=0.0043 tau_m=2.3504 tau_ref=0.3611
+Latency gate: |Re(lambda_dom)| > 1/4 = 0.250
+
+H(omega) latency-gate eval on 5x2x40 grid...
+
+  N= 2, drive_bump=0: H-blue 19/40, elapsed 0.0s
+  N= 2, drive_bump=1: H-blue 24/40, elapsed 0.0s
+  N= 3, drive_bump=0: H-blue 16/40, elapsed 0.0s
+  N= 3, drive_bump=1: H-blue 22/40, elapsed 0.0s
+  N= 4, drive_bump=0: H-blue 14/40, elapsed 0.0s
+  N= 4, drive_bump=1: H-blue 21/40, elapsed 0.0s
+  N= 6, drive_bump=0: H-blue 10/40, elapsed 0.0s
+  N= 6, drive_bump=1: H-blue 19/40, elapsed 0.0s
+  N=10, drive_bump=0: H-blue  5/40, elapsed 0.0s
+  N=10, drive_bump=1: H-blue 17/40, elapsed 0.0s
+
+Gate-threshold sweep (vs FCS margin gate, drive_bump=1, all N):
+  best: thresh=0.150, J(FCS margin, db=1)=0.174
+  at FCS-prescribed thresh=0.250: J(FCS margin, db=1)=0.149
+
+Jaccard vs FCS (margin gate), per (N, drive_bump):
+  N= 2, db=0: J(H)=0.000, J(Siegert)=0.000, H_blue=19, sieg_blue=26, fcs_blue_m=0
+  N= 2, db=1: J(H)=0.214, J(Siegert)=0.290, H_blue=24, sieg_blue=30, fcs_blue_m=10
+  N= 3, db=0: J(H)=0.000, J(Siegert)=0.000, H_blue=16, sieg_blue=24, fcs_blue_m=0
+  N= 3, db=1: J(H)=0.192, J(Siegert)=0.267, H_blue=22, sieg_blue=29, fcs_blue_m=9
+  N= 4, db=0: J(H)=0.000, J(Siegert)=0.000, H_blue=14, sieg_blue=22, fcs_blue_m=0
+  N= 4, db=1: J(H)=0.125, J(Siegert)=0.097, H_blue=21, sieg_blue=28, fcs_blue_m=6
+  N= 6, db=0: J(H)=0.000, J(Siegert)=0.000, H_blue=10, sieg_blue=19, fcs_blue_m=0
+  N= 6, db=1: J(H)=0.174, J(Siegert)=0.138, H_blue=19, sieg_blue=25, fcs_blue_m=8
+  N=10, db=0: J(H)=0.000, J(Siegert)=0.000, H_blue=5, sieg_blue=15, fcs_blue_m=0
+  N=10, db=1: J(H)=0.000, J(Siegert)=0.000, H_blue=17, sieg_blue=22, fcs_blue_m=3
+
+Closed-form spectrum diagnostic (db=1, w=-30):
+  N= 2: Re(eigvals) = [-0.457, -0.394]
+          |Re(dom)| = 0.394 (> gate 0.250)
+  N= 3: Re(eigvals) = [-0.470, -0.424, -0.382]
+          |Re(dom)| = 0.382 (> gate 0.250)
+  N= 4: Re(eigvals) = [-0.481, -0.424, -0.424, -0.372]
+          |Re(dom)| = 0.372 (> gate 0.250)
+  N= 6: Re(eigvals) = [-0.498, -0.424, -0.424, -0.424, -0.424, -0.357]
+          |Re(dom)| = 0.357 (> gate 0.250)
+  N=10: Re(eigvals) = [-0.526, -0.424, -0.424, -0.424, -0.424, -0.424, -0.424, -0.424, -0.424, -0.334]
+          |Re(dom)| = 0.334 (> gate 0.250)
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase2/h_grid_multi.npz
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase2/h_gate_vs_fcs_multi.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase2/eigvalue_spectrum_vs_N.pdf
+
+Phase 2 verdict:
+  drive_bump=1: H-gate blue=103, J(H vs FCS margin)=0.149, J(Siegert vs FCS margin)=0.164
+  Improvement of H-gate over Siegert: -0.016
+  PARTIAL: H-gate at threshold 0.25 does not meaningfully tighten Siegert. The inverse-staircase cells FCS sees at high N have no rate-equation FP to evaluate, so the gate cannot recover them.
