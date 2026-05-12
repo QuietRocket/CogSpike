@@ -34,6 +34,6 @@ typst compile phase2_report.typ
 typst compile phase3_report.typ
 
 echo "==> Typst: integrating note"
-typst compile note/closed_form_neg_loop_note.typ
+typst compile --root "$ROOT" note/closed_form_neg_loop_note.typ
 
 echo "==> All done. Final PDF: note/closed_form_neg_loop_note.pdf"
