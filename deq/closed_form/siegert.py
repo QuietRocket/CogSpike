@@ -412,3 +412,136 @@ def find_all_fixed_points_uniform_inhibition(
         seen.append(key)
         deduped.append(fp)
     return deduped
+
+
+def find_fp_uniform_inhibition_bumped(
+    N: int,
+    w: float,
+    drive: float,
+    drive_bump: float,
+    p_thin: float,
+    siegert: Siegert,
+    alpha: float,
+    beta: float,
+    n_samples: int = 81,
+) -> list:
+    """FP enumeration for N-neuron uniform inhibition with a `drive_bump` on
+    neuron 0 (S_N -> S_(N-1) broken symmetry).
+
+    Neuron 0 receives drive (drive + drive_bump) * p_thin; neurons 1..N-1 each
+    receive drive * p_thin. We enumerate three orbit classes (the WTA-relevant
+    ones; the spontaneously-broken k in {2..N-1} orbits are rare for small
+    drive_bump and not WTA shapes anyway):
+
+      - 'bumped_winner' (k=1 with bumped neuron as the winner): 2D FP in
+        (nu_0, nu_L) where neurons 1..N-1 all tie at nu_L. Same nested-brentq
+        machinery as the symmetric case.
+      - 'all_equal_others': 1D FP in nu_L assuming nu_0 = nu_L (i.e. the
+        bumped neuron does not deviate from the symmetric all-fire FP, which
+        can happen at weak |w|).
+      - 'all_fire_symmetric': 1D FP ignoring the bump (returns the symmetric
+        FP that would exist at drive_bump=0). Diagnostic only.
+
+    Returns list of dicts {'shape': str, 'nu_0': float, 'nu_L': float,
+    'spread': float}, sorted by descending spread.
+    """
+    from scipy.optimize import brentq
+
+    D0 = drive + drive_bump
+    D = drive
+
+    def phi_in(mu_in, var_in):
+        return _phi_from_means(siegert, alpha, beta, mu_in, var_in)
+
+    # ---- Orbit: bumped winner, others tie (k=1 with bumped as winner) ----
+    def phi_0(nu_0, nu_L):
+        mean_in = D0 * p_thin + w * (N - 1) * nu_L
+        var_in = (D0 ** 2) * p_thin * (1 - p_thin) + (w ** 2) * (N - 1) * nu_L * (1 - nu_L)
+        return phi_in(mean_in, var_in)
+
+    def phi_L(nu_0, nu_L):
+        mean_in = D * p_thin + w * (nu_0 + (N - 2) * nu_L)
+        var_in = ((D ** 2) * p_thin * (1 - p_thin)
+                  + (w ** 2) * (nu_0 * (1 - nu_0) + (N - 2) * nu_L * (1 - nu_L)))
+        return phi_in(mean_in, var_in)
+
+    def nu_0_branches(nu_L):
+        """All nu_0 solutions of nu_0 = phi_0(nu_0, nu_L) at fixed nu_L.
+
+        phi_0 doesn't depend on nu_0 (the bumped neuron's input is fully
+        determined by nu_L), so this is a *direct* evaluation, not a
+        root-find. Returns [phi_0(0, nu_L)] (or empty if numerically bad).
+        """
+        try:
+            return [phi_0(0.0, nu_L)]
+        except Exception:
+            return []
+
+    bumped_winner_fps = []
+    xs_L = np.linspace(1e-4, 1 - 1e-4, n_samples)
+
+    def residual_L(nu_L):
+        branches = nu_0_branches(nu_L)
+        if not branches:
+            return float('nan')
+        nu_0 = branches[0]
+        return nu_L - phi_L(nu_0, nu_L)
+
+    ys_L = np.array([residual_L(x) for x in xs_L])
+    for i in range(len(xs_L) - 1):
+        a, b = ys_L[i], ys_L[i + 1]
+        if np.isnan(a) or np.isnan(b):
+            continue
+        if a == 0:
+            nu_L_star = float(xs_L[i])
+            nu_0_star = nu_0_branches(nu_L_star)[0]
+            bumped_winner_fps.append((nu_0_star, nu_L_star))
+        elif a * b < 0:
+            try:
+                r = brentq(residual_L, float(xs_L[i]), float(xs_L[i + 1]),
+                           xtol=1e-10)
+                nu_0_star = nu_0_branches(r)[0]
+                bumped_winner_fps.append((nu_0_star, float(r)))
+            except Exception:
+                pass
+
+    # ---- 1D symmetric (all equal, including bumped neuron) ----
+    def residual_sym(x):
+        # All N neurons fire at x, even neuron 0 (ignoring drive_bump).
+        # Actually for the truly symmetric FP under broken symmetry, only
+        # the others (N-1) tie; we just compute the analog of the symmetric
+        # FP at drive_bump=0 here for diagnostic.
+        mean_in = D * p_thin + w * (N - 1) * x
+        var_in = (D ** 2) * p_thin * (1 - p_thin) + (w ** 2) * (N - 1) * x * (1 - x)
+        return x - phi_in(mean_in, var_in)
+    ys_sym = np.array([residual_sym(x) for x in xs_L])
+    sym_fps = []
+    for i in range(len(xs_L) - 1):
+        a, b = ys_sym[i], ys_sym[i + 1]
+        if a == 0:
+            sym_fps.append(float(xs_L[i]))
+        elif a * b < 0:
+            try:
+                r = brentq(residual_sym, float(xs_L[i]), float(xs_L[i + 1]),
+                           xtol=1e-10)
+                sym_fps.append(float(r))
+            except Exception:
+                pass
+
+    fps = []
+    for nu_0_star, nu_L_star in bumped_winner_fps:
+        fps.append({
+            'shape': 'bumped_winner',
+            'nu_0': float(nu_0_star),
+            'nu_L': float(nu_L_star),
+            'spread': float(nu_0_star - nu_L_star),
+        })
+    for nu_s in sym_fps:
+        fps.append({
+            'shape': 'symmetric_all_fire',
+            'nu_0': float(nu_s),
+            'nu_L': float(nu_s),
+            'spread': 0.0,
+        })
+    fps.sort(key=lambda d: -d['spread'])
+    return fps

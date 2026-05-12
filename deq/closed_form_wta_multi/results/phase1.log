@@ -1,0 +1,40 @@
+Calibration: alpha=0.2500 beta=0.0043 tau_m=2.3504 tau_ref=0.3611
+Multi-restart fsolve: 30 ICs per cell; dedup_tol=0.005
+
+Multi-restart fsolve enumeration on 5x2x40 grid...
+
+  N= 2, drive_bump=0: blue 26/40, mean FPs/cell=1.68, elapsed 0.4s
+  N= 2, drive_bump=1: blue 30/40, mean FPs/cell=2.10, elapsed 0.5s
+  N= 3, drive_bump=0: blue 24/40, mean FPs/cell=2.12, elapsed 0.8s
+  N= 3, drive_bump=1: blue 29/40, mean FPs/cell=1.90, elapsed 1.2s
+  N= 4, drive_bump=0: blue 22/40, mean FPs/cell=1.75, elapsed 1.2s
+  N= 4, drive_bump=1: blue 28/40, mean FPs/cell=1.25, elapsed 1.9s
+  N= 6, drive_bump=0: blue 19/40, mean FPs/cell=1.57, elapsed 2.0s
+  N= 6, drive_bump=1: blue 25/40, mean FPs/cell=1.00, elapsed 3.4s
+  N=10, drive_bump=0: blue 15/40, mean FPs/cell=1.38, elapsed 4.6s
+  N=10, drive_bump=1: blue 22/40, mean FPs/cell=1.57, elapsed 4.9s
+
+Jaccard vs FCS (margin and strict), per (N, drive_bump):
+  N= 2, db=0: J(margin)=0.000, J(strict)=0.000, sieg_blue=26, fcs_b_margin=0, fcs_b_strict=0
+  N= 2, db=1: J(margin)=0.290, J(strict)=0.300, sieg_blue=30, fcs_b_margin=10, fcs_b_strict=9
+  N= 3, db=0: J(margin)=0.000, J(strict)=0.000, sieg_blue=24, fcs_b_margin=0, fcs_b_strict=0
+  N= 3, db=1: J(margin)=0.267, J(strict)=0.100, sieg_blue=29, fcs_b_margin=9, fcs_b_strict=4
+  N= 4, db=0: J(margin)=0.000, J(strict)=0.000, sieg_blue=22, fcs_b_margin=0, fcs_b_strict=0
+  N= 4, db=1: J(margin)=0.097, J(strict)=0.000, sieg_blue=28, fcs_b_margin=6, fcs_b_strict=2
+  N= 6, db=0: J(margin)=0.000, J(strict)=0.000, sieg_blue=19, fcs_b_margin=0, fcs_b_strict=0
+  N= 6, db=1: J(margin)=0.138, J(strict)=0.000, sieg_blue=25, fcs_b_margin=8, fcs_b_strict=0
+  N=10, db=0: J(margin)=0.000, J(strict)=0.000, sieg_blue=15, fcs_b_margin=0, fcs_b_strict=0
+  N=10, db=1: J(margin)=0.000, J(strict)=0.000, sieg_blue=22, fcs_b_margin=3, fcs_b_strict=0
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase1/siegert_orbits.npz
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase1/siegert_orbits_vs_fcs.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase1/siegert_max_spread.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase1/orbit_count_vs_N.pdf
+
+Phase 1 verdict:
+  drive_bump=1 overall: Siegert blue=134, FCS blue (margin)=36, recall=0.667, Jaccard=0.164
+  drive_bump=0 (FCS-faithful symmetric):
+    Siegert blue=106, FCS blue=0
+    Generalizes the N=2 'staircase invisibility' to N>2: smooth-
+    rate theory sees bistable FPs that FCS integer-tick dynamics
+    cannot select due to perfect S_N synchrony.
