@@ -1,0 +1,18 @@
+Calibration (locked): {'alpha': 0.2499999999999715, 'beta': 0.004291679302919695, 'tau_m': 2.3504490565989054, 'tau_ref': 0.36106400390347276}
+
+Renewal-PMF run at FCS default cell (w_XA=11, w_AI=11, w_IA=-11), T=80
+
+FCS A: 011001100110011001100110 ...
+FCS I: 001100110011001100110011 ...
+
+After warmup (t >= 16, length 64):
+  FCS A:               period=4, template match='1100' shift=1, corr=1.000
+  PMF binary thresh:   period=1, template match shift=-1, corr=-1.000, FFT period of fire_A trace=4.00
+  PMF fire_A mean = 0.352, std = 0.008, max = 0.473, min = 0.252
+
+  PMF-binary vs FCS-A direct agreement: 32/64 = 0.500
+  Best phase-shifted PMF vs FCS agreement: 32/64 = 0.500 at shift=0
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/followups/results/expB/pmf_vs_fcs.pdf
+
+Experiment B FAIL: PMF-binary period 1 != 4, or template match insufficient.
