@@ -76,6 +76,40 @@ def contralateral(w_12, w_21, T=50, self_drive=DEFAULT_SELF_DRIVE):
     return W, B, external
 
 
+def all_to_all_inhibition(N, w, T=50, self_drive=DEFAULT_SELF_DRIVE, drive_bump=0):
+    """N-neuron all-to-all lateral inhibition (generalizes contralateral to N>2).
+
+    Every neuron drives itself with `self_drive` (default 11, delayer threshold)
+    and inhibits every other neuron with scaled-integer weight `w` (typically
+    negative). `drive_bump` adds an integer to neuron 0's self-drive — the
+    FCS-faithful symmetry breaker, since the FCS Lustre semantics with
+    symmetric weights and zero initial condition locks all N neurons into
+    identical synchronous trajectories.
+
+    Reduces to contralateral(w, w) at N = 2 with drive_bump = 0 (up to the
+    shared-w constraint).
+
+    Args:
+        N: number of neurons (>= 2).
+        w: scaled-integer inhibitory weight (typically negative).
+        T: simulation ticks.
+        self_drive: external-input weight to each neuron (default 11).
+        drive_bump: integer added to B[0, 0] (default 0). Use 1 to break the
+            FCS-faithful S_N symmetry.
+
+    Returns:
+        (W, B, external) ready for lif_fcs.simulate.
+        Neuron indexing: 0 is the (optionally) drive-bumped neuron.
+    """
+    W = np.full((N, N), int(w), dtype=np.int64)
+    np.fill_diagonal(W, 0)
+    B = np.zeros((N, N), dtype=np.int64)
+    for i in range(N):
+        B[i, i] = int(self_drive) + (int(drive_bump) if i == 0 else 0)
+    external = np.ones((N, T), dtype=np.int64)
+    return W, B, external
+
+
 def contralateral_delayed(w_12, w_21, T=50, self_drive=DEFAULT_SELF_DRIVE,
                           delayer_drive=DEFAULT_SELF_DRIVE):
     """Contralateral inhibition with a delayer on the N1 -> N2 branch (FCS Fig. 11).

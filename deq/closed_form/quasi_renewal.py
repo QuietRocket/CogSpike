@@ -178,3 +178,80 @@ def simulate_contralateral(
         A_prev = A
 
     return rates
+
+
+def simulate_uniform_inhibition(
+    N_neurons: int,
+    w: float,
+    drive: float,
+    p_thin: float,
+    qr: QuasiRenewal,
+    alpha: float,
+    beta: float,
+    N_pop: int,
+    T: int,
+    seed: int = 0,
+    init_A=None,
+    drive_bump: float = 0.0,
+) -> np.ndarray:
+    """Run quasi-renewal N-neuron all-to-all inhibition for T ticks.
+
+    Generalizes simulate_contralateral to arbitrary N. Each population i
+    receives recurrent inhibition w * sum_{j != i} A_prev[j] and external
+    drive (drive + drive_bump_i) * p_thin with drive_bump_i = drive_bump if
+    i == 0 else 0. Uses qr.step() unchanged (already vectorized over
+    populations).
+
+    Default init_A = linspace(0.5, 0.1, N_neurons) gives neuron 0 the lead,
+    matching the 2-neuron init_A=(0.5, 0.1) convention.
+
+    Args:
+        N_neurons: number of populations.
+        w: per-edge inhibitory weight in FCS units.
+        drive, p_thin, alpha, beta: FCS->Siegert calibration constants.
+        qr: QuasiRenewal instance.
+        N_pop: per-population size (sqrt-N finite-size noise).
+        T: number of ticks.
+        seed: rng seed.
+        init_A: optional (N_neurons,) initial activity.
+        drive_bump: float added to neuron 0's external drive (symmetric-breaker).
+
+    Returns:
+        rates: (N_neurons, T) array of per-tick population activities.
+    """
+    rng = np.random.default_rng(seed)
+    if init_A is None:
+        init_A = np.linspace(0.5, 0.1, N_neurons)
+    else:
+        init_A = np.asarray(init_A, dtype=float)
+        assert init_A.shape == (N_neurons,)
+
+    m = np.zeros((N_neurons, qr.K_max))
+    for i, A0 in enumerate(init_A):
+        A0_safe = max(float(A0), 1e-3)
+        for k in range(qr.K_max):
+            m[i, k] = A0_safe * (1 - A0_safe) ** k
+        m[i] /= m[i].sum()
+    A_prev = init_A.copy()
+    rates = np.zeros((N_neurons, T))
+
+    # Per-neuron external drive (drive_bump on neuron 0 only).
+    drives_ext = np.full(N_neurons, float(drive))
+    drives_ext[0] += float(drive_bump)
+
+    for t in range(T):
+        # Sum of all others: w * (sum(A_prev) - A_prev[i]).
+        sum_A = A_prev.sum()
+        sum_A_var = (A_prev * (1.0 - A_prev)).sum()
+        mean_recur = w * (sum_A - A_prev)
+        var_recur = (w ** 2) * (sum_A_var - A_prev * (1.0 - A_prev))
+        mean_ext = drives_ext * p_thin
+        var_ext = (drives_ext ** 2) * p_thin * (1.0 - p_thin)
+        mu = alpha * (mean_ext + mean_recur)
+        sigma_sq = beta * (var_ext + var_recur)
+        sigma = np.sqrt(np.clip(sigma_sq, 0.0, None))
+        m, A = qr.step(m, mu, sigma, N_pop, rng=rng)
+        rates[:, t] = A
+        A_prev = A
+
+    return rates

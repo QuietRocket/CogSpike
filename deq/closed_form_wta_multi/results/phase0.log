@@ -1,0 +1,41 @@
+FCS-LI&F oracle on uniform inhibition; N in [2, 3, 4, 6, 10], drive_bumps in [0, 1], W in [-40, -1] (40 values); T_max=50, T_warmup=4
+  strict gate: rate_max>=0.99 AND second_max<=0.01
+  margin gate: rate_max - second_max >= 0.3
+
+  N= 2, drive_bump=0: strict 0/40, margin 0/40, elapsed 0.0s
+  N= 2, drive_bump=1: strict 9/40, margin 10/40, elapsed 0.0s
+  N= 3, drive_bump=0: strict 0/40, margin 0/40, elapsed 0.0s
+  N= 3, drive_bump=1: strict 4/40, margin 9/40, elapsed 0.0s
+  N= 4, drive_bump=0: strict 0/40, margin 0/40, elapsed 0.0s
+  N= 4, drive_bump=1: strict 2/40, margin 6/40, elapsed 0.0s
+  N= 6, drive_bump=0: strict 0/40, margin 0/40, elapsed 0.0s
+  N= 6, drive_bump=1: strict 0/40, margin 8/40, elapsed 0.0s
+  N=10, drive_bump=0: strict 0/40, margin 0/40, elapsed 0.0s
+  N=10, drive_bump=1: strict 0/40, margin 3/40, elapsed 0.0s
+
+Summary (strict / margin / total per N, drive_bump):
+  N= 2, drive_bump=0: strict  0/40, margin  0/40
+  N= 2, drive_bump=1: strict  9/40, margin 10/40
+  N= 3, drive_bump=0: strict  0/40, margin  0/40
+  N= 3, drive_bump=1: strict  4/40, margin  9/40
+  N= 4, drive_bump=0: strict  0/40, margin  0/40
+  N= 4, drive_bump=1: strict  2/40, margin  6/40
+  N= 6, drive_bump=0: strict  0/40, margin  0/40
+  N= 6, drive_bump=1: strict  0/40, margin  8/40
+  N=10, drive_bump=0: strict  0/40, margin  0/40
+  N=10, drive_bump=1: strict  0/40, margin  3/40
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase0/fcs_grid_multi.npz
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase0/fcs_grid_multi.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/multiple-neuron-wta/deq/closed_form_wta_multi/results/phase0/fcs_winner_fraction.pdf
+
+Spot-checks (drive_bump=1, w=-30, post-warmup rates):
+  N= 2: rates = [0.35, 0.35]; strict=0 margin=0
+  N= 3: rates = [0.98, 0.00, 0.00]; strict=0 margin=1
+  N= 4: rates = [0.20, 0.20, 0.20, 0.20]; strict=0 margin=0
+  N= 6: rates = [0.17, 0.17, 0.17, 0.17, 0.17, 0.17]; strict=0 margin=0
+  N=10: rates = [0.17, 0.17, 0.17, 0.17, 0.17, 0.17, 0.17, 0.17, 0.17, 0.17]; strict=0 margin=0
+
+Phase 0 verdict:
+  drive_bump=1: strict 15/200, margin 36/200
+  PASS: drive_bump=1 sweep produces near-WTA (margin gate) at all small N; staircase structure documented.
