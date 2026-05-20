@@ -1,0 +1,63 @@
+Calibration (locked): {'alpha': 0.2499999999999715, 'beta': 0.004291679302919695, 'tau_m': 2.3504490565989054, 'tau_ref': 0.36106400390347276}
+
+FCS oracle, 3-neuron negative loop, default weights (w_XA=11, w_AD=11, w_DI=11, w_IA=-11):
+  A: 01110001110001110001110001110001...
+  D: 00111000111000111000111000111000...
+  I: 00011100011100011100011100011100...
+  measured period of A (post-warmup): 6
+
+w_IA sweep on 3-neuron motif (w_AD=w_DI=11, w_XA=11):
+  w_IA = -30: FCS period = 8
+  w_IA = -29: FCS period = 8
+  w_IA = -28: FCS period = 8
+  w_IA = -27: FCS period = 8
+  w_IA = -26: FCS period = 8
+  w_IA = -25: FCS period = 8
+  w_IA = -24: FCS period = 8
+  w_IA = -23: FCS period = 8
+  w_IA = -22: FCS period = 8
+  w_IA = -21: FCS period = 7
+  w_IA = -20: FCS period = 7
+  w_IA = -19: FCS period = 7
+  w_IA = -18: FCS period = 7
+  w_IA = -17: FCS period = 7
+  w_IA = -16: FCS period = 7
+  w_IA = -15: FCS period = 7
+  w_IA = -14: FCS period = 7
+  w_IA = -13: FCS period = 7
+  w_IA = -12: FCS period = 7
+  w_IA = -11: FCS period = 6
+  w_IA = -10: FCS period = 6
+  w_IA =  -9: FCS period = 6
+  w_IA =  -8: FCS period = 6
+  w_IA =  -7: FCS period = 6
+  w_IA =  -6: FCS period = 6
+  w_IA =  -5: FCS period = 5
+  w_IA =  -4: FCS period = 2
+  w_IA =  -3: FCS period = 2
+  w_IA =  -2: FCS period = 2
+  w_IA =  -1: FCS period = 2
+
+Siegert FP at default: nu = (0.4311, 0.2591, 0.0802)
+  Jacobian eigenvalues: 
+    lambda_0 = -0.8071 + +0.0000i
+    lambda_1 = -0.2346 + +0.3305i
+    lambda_2 = -0.2346 + -0.3305i
+  dominant |Im(λ)| = 0.3305, T_pred (static tau_m) = 19.01 ticks
+
+From Experiment A: tau_fit = 5.018, tau_static = 2.350
+  T_pred recalibrated = 40.58 ticks
+
+QR mesoscopic at N=500: A's FFT period = 6.38 ticks
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/followups/results/expC/three_neuron.pdf
+
+Experiment C summary:
+  FCS period (2-neuron):       4
+  FCS period (3-neuron):       6
+  H(ω) static T_pred (2-neuron): 15.92
+  H(ω) static T_pred (3-neuron): 19.01
+  H(ω) recal T_pred (3-neuron):  40.58
+  QR period (2-neuron, N=2000):  4.05
+  QR period (3-neuron, N=500):    6.38
+  Experiment C PASS: 3-neuron motif gives longer period (6); QR (6.38) tracks FCS within ±1.5.

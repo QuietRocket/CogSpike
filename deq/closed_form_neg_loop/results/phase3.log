@@ -1,0 +1,24 @@
+Calibration (locked): {'alpha': 0.2499999999999715, 'beta': 0.004291679302919695, 'tau_m': 2.3504490565989054, 'tau_ref': 0.36106400390347276}
+
+Quasi-renewal sweep on 40 x 40 grid; N sweep: [50, 100, 500, 2000]
+T=400, warmup=100
+
+  N=  50: qr_p5_blue= 201, qr_osc_blue=1328, J(p5)=0.196, J(broad)=0.712, elapsed 50.2s
+  N= 100: qr_p5_blue= 421, qr_osc_blue=1267, J(p5)=0.390, J(broad)=0.747, elapsed 50.5s
+  N= 500: qr_p5_blue= 637, qr_osc_blue= 984, J(p5)=0.486, J(broad)=0.794, elapsed 51.2s
+  N=2000: qr_p5_blue= 692, qr_osc_blue= 774, J(p5)=0.479, J(broad)=0.734, elapsed 50.8s
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase3/qr_n_sweep.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase3/period_qr_vs_FCS.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase3/qr_jaccard_vs_N.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/negative-loop/deq/closed_form_neg_loop/results/phase3/default_cell_traces.pdf
+
+FCS default cell (w_IA=-11, w_XA=11) summary:
+  N=  50: QR period=4.05, template=0.24, amp=0.40, p5_blue=0, osc_blue=1
+  N= 100: QR period=4.05, template=0.26, amp=0.31, p5_blue=0, osc_blue=1
+  N= 500: QR period=4.05, template=0.28, amp=0.15, p5_blue=0, osc_blue=1
+  N=2000: QR period=4.05, template=0.28, amp=0.08, p5_blue=0, osc_blue=0
+
+Phase 3 verdict:
+  J(qr_osc, FCS broad_osc) at N=50: 0.712; at N=2000: 0.734
+  PARTIAL: finite-N noise does not preferentially enhance oscillation in this regime; both N's behave similarly.
