@@ -1,0 +1,15 @@
+Calibration (locked): {'alpha': 0.2499999999999715, 'beta': 0.004291679302919695, 'tau_m': 2.3504490565989054, 'tau_ref': 0.36106400390347276}
+
+Quasi-renewal extended-N sweep on 40x40 grid
+  N sweep: [10, 20, 50, 100, 500, 2000, 20000]; T=200; init_A=(0.5, 0.1)
+  WTA gate: rate_max - rate_min >= 0.3 (post-warmup window [t=50, T=200])
+
+  N=   10: blue= 711/1600, J(FCS)=0.605, J(Siegert)=0.479, elapsed 23.2s
+  N=   20: blue=1022/1600, J(FCS)=0.717, J(Siegert)=0.688, elapsed 22.7s
+  N=   50: blue=1296/1600, J(FCS)=0.701, J(Siegert)=0.873, elapsed 22.6s
+  N=  100: blue=1399/1600, J(FCS)=0.675, J(Siegert)=0.943, elapsed 22.8s
+  N=  500: blue=1433/1600, J(FCS)=0.667, J(Siegert)=0.966, elapsed 22.9s
+  N= 2000: blue=1427/1600, J(FCS)=0.662, J(Siegert)=0.963, elapsed 23.0s
+  N=20000: blue=1428/1600, J(FCS)=0.661, J(Siegert)=0.964, elapsed 23.1s
+
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/qr_grid_extended.npz
