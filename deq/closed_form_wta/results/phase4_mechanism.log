@@ -1,0 +1,52 @@
+======================================================================
+Phase 4 mechanism analysis
+======================================================================
+
+Grid: 40x40 over (w_12, w_21) in [-40, -1]^2
+FCS blue: 1014/1600; red: 586/1600
+
+Extended-N QR sweep loaded: N in [np.int64(10), np.int64(20), np.int64(50), np.int64(100), np.int64(500), np.int64(2000), np.int64(20000)]
+
+Step 1: classify FCS cells by synchrony period
+  Period inference on 586 FCS-red cells...
+  Period inference done in 0.2s
+
+  Class counts:
+    blue       : 1014 cells
+    period-1   :    0 cells
+    period-2   :  144 cells
+    period-3   :  361 cells
+    period-4   :   81 cells
+    red-other  :    0 cells
+
+Step 2: per-N decomposition
+
+  Per-N stats:
+       N   J(FCS)   J(Sieg)   p1 red   p2 red   p3 red   p4 red    other    broad
+      10    0.605     0.479        —  133/144  313/361    79/81        —  364/1014
+      20    0.717     0.688        —  124/144  222/361    68/81        —  164/1014
+      50    0.701     0.873        —  116/144  104/361    22/81        —  62/1014
+     100    0.675     0.943        —  112/144   42/361     5/81        —  42/1014
+     500    0.667     0.966        —  111/144   21/361     0/81        —  35/1014
+    2000    0.662     0.963        —  112/144   19/361     0/81        —  42/1014
+   20000    0.661     0.964        —  112/144   18/361     0/81        —  42/1014
+
+Step 3: plotting
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/mechanism_blocks.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/mechanism_dissolution_vs_N.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/mechanism_flip_maps.pdf
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/mechanism_jaccard_decomp.pdf
+
+Step 4: save mechanism grid
+  wrote /Users/quietrocket/.superset/worktrees/CogSpike/quasi-renewal-investigation/deq/closed_form_wta/results/phase4/mechanism_grid.npz
+
+======================================================================
+Mechanism verdict
+======================================================================
+  Siegert baseline: J(vs FCS) = 0.680
+  Best QR: N=20 at J(vs FCS) = 0.717 (+0.037 vs Siegert)
+  At N=20:
+    staircase true-flips (FCS-red, Siegert-blue → QR-red): 301
+    other-red true-flips: 0
+    broadening cost (FCS-blue, Siegert-blue → QR-red): 160
+    net correct flips - cost: 141
