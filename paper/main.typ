@@ -1,24 +1,19 @@
-// Formal Verification of Probabilistic Spiking Neural Networks
-// via Weight-Discretized Quotient Abstractions  —  EXTENDED VERSION (for arXiv)
+// A Formal Tool for Verification of Probabilistic Spiking Neural Networks
+// Based on Quotient Abstractions  —  EXTENDED VERSION (for arXiv)
 //
 // Long companion to the camera-ready (camera_ready.typ). It carries the full
 // proofs (Section 4.4) and the topology-dependent scaling study (Section 6),
 // to which the conference version links. No strict page limit (arXiv).
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// TODO — reconcile with the camera-ready at the Friday review. These are
-//        research-content calls, deliberately NOT changed autonomously:
-//   (1) Leak model: this long version still uses the threshold-dependent
-//       ADDITIVE leak factor lambda_d (Section 4.3 / soundness proof / bio
-//       properties), whereas the accepted paper uses the MULTIPLICATIVE leak
-//       floor(r·p)+C. The WTA case study requires the multiplicative form
-//       (see research/quotient-abstraction/README.md). Pick the canonical
-//       model and make both versions agree.
-//   (2) Theorem 2 (Asymptotic Silence): the conference version states a
-//       single-step form; the proof here is the absorbing-silence (no-input)
-//       form. Settle the canonical statement.
-//   (3) Optionally fold the contralateral-inhibition case study in here too,
-//       so the long version is a strict superset of the short one.
+// Reconciled with the camera-ready (2026-06 review pass):
+//   (1) Leak model: now uses the MULTIPLICATIVE leak floor(r·p)+C (Section 4.3,
+//       soundness proof, bio properties), matching the accepted paper.
+//   (2) Theorem 2 (Asymptotic Silence): stated here in the full absorbing-
+//       silence (no-input) form via the multiplicative strict decay
+//       floor(r·p)<p; the conference version gives the single-step lemma.
+//   (3) The contralateral-inhibition case study stays in the conference
+//       version; the banner above points readers to it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #import "llncs.typ": *
@@ -28,13 +23,13 @@
 
 // ── Apply template ───────────────────────────────────────────────────────────
 #show: lncs.with(
-  title: "A tool for Formal Verification of\n Probabilistic Spiking Neural Networks\nvia Weight-Discretized Quotient Abstractions",
+  title: "A Formal Tool for Verification of\n Probabilistic Spiking Neural Networks\nBased on Quotient Abstractions",
   authors: (
     author("Nikan Zandian Jazi", insts: (inst-uns,)),
     author("Elisabetta De Maria", insts: (inst-uns,)),
     author("Christopher Leturc", insts: (inst-uns,)),
   ),
-  running-title: "Formal Verification of SNNs via Weight-Discretized Quotient Abstractions",
+  running-title: "Formal Verification of SNNs via Quotient Abstractions",
   running-authors: "N. Zandian Jazi, E. De Maria, C. Leturc",
   abstract: [
     Spiking Neural Networks (SNNs) model biological neural dynamics more
@@ -76,7 +71,7 @@
 )
 
 // Extended-version banner
-#align(center)[#text(size: 9pt, style: "italic")[Extended version of the paper accepted at the International Conference on Artificial Neural Networks (ICANN)~2026, with the full proofs of @sec-proofs and the topology-dependent scaling analysis of @sec-scaling.]]
+#align(center)[#text(size: 9pt, style: "italic")[Extended version of the paper accepted at the International Conference on Artificial Neural Networks (ICANN)~2026, with the full proofs of @sec-proofs and the topology-dependent scaling analysis of @sec-scaling. The contralateral-inhibition case study demonstrating the design--simulate--verify workflow appears in the conference version.]]
 #v(0.2cm)
 
 
@@ -122,7 +117,7 @@ This paper pursues precisely that compromise. We propose CogSpike, a unified
 tool for probabilistic spiking neural networks that integrates three tightly
 coupled capabilities within a single isomorphic framework: (i)~_simulation_ of
 LIF-based SNN dynamics, (ii)~_formal modelling_ of the same networks as DTMCs
-for the PRISM model checker @PRISM2011 (a tool that computes the _exact_ probability with which a temporal-logic property holds over a DTMC), and (iii)~_automated model checking_
+for the PRISM model checker @PRISM2011 (a tool that computes the probability with which a temporal-logic property holds over a DTMC by exhaustive numerical analysis, up to floating-point precision), and (iii)~_automated model checking_
 of behavioural properties expressed in Probabilistic Computation Tree Logic
 (PCTL). The underlying neuron model employs a weight-discretized quotient
 abstraction that overcomes the limitations of naïve quotient
@@ -144,7 +139,7 @@ Concretely, the contributions are fourfold:
   DTMC size as a function of network structure, validated empirically across
   seven canonical topologies (@sec-scaling).
 
-+ *CogSpike*, a unified workbench integrating SNN design, simulation,
++ *CogSpike*#footnote[All code and experiments are available at #link("https://github.com/QuietRocket/CogSpike").], a unified workbench integrating SNN design, simulation,
   and formal verification, whose code generator produces a PRISM
   representation isomorphic to the simulation engine, enabling automated
   formal modelling and model checking (@sec-cogspike).
@@ -187,7 +182,7 @@ behaviour, excitability---as formal verification targets, and introduced the
 Advice Back-Propagation (ABP) algorithm for supervised parameter inference
 driven by model-checking counter-examples rather than continuous gradients.
 This approach was extended to _neuronal archetypes_---primitive micro-circuits
-such as contralateral inhibition and convergent excitation---allowing
+such as contralateral inhibition and parallel composition---allowing
 macroscopic network properties to be composed from formally verified building
 blocks @demaria2022formal.
 
@@ -215,22 +210,23 @@ limitations.
 
 An SNN is modelled as a directed graph $G = (V, E)$, where directed edges
 represent unidirectional synaptic connections and $V = V_"in" union
-V_"proc"$ partitions into input neurons and processing neurons, and $E
+V_"proc" union V_"out"$ partitions into input, processing, and output neurons, and $E
 subset.eq V times V$ represents directed synaptic connections with integer
 weights $w_e in [-100, 100]$.
 
-Each processing neuron $n in V_"proc"$ follows Leaky Integrate-and-Fire (LIF)
-dynamics @naco20 @hodgkin1952quantitative. Let $ell in [0,1]$ be the leak
-factor and $T$ be the firing threshold. At each discrete time step $t$,
+Each processing or output neuron $n in V_"proc" union V_"out"$ follows Leaky
+Integrate-and-Fire (LIF) dynamics @naco20 @hodgkin1952quantitative; input
+neurons in $V_"in"$ act as exogenous spike sources. Let $r in [0,1]$ be the
+leak factor and $T$ be the firing threshold. At each discrete time step $t$,
 the membrane potential integrates incoming weighted spikes and decays toward
 rest:
-$ p_n (t+1) = max(0, (1 - ell) dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c y_i (t)) $ <eq-lif>
+$ p_n (t+1) = max(0, r dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c y_i (t)) $ <eq-lif>
 where $y_i (t)$ is the spike event of presynaptic neuron $i$ at time $t$.
 When $p_n (t+1) >= T$, neuron $n$ emits a spike ($y_n (t+1) = 1$) and
 resets to zero.
 
 Firing is _probabilistic_: the potential maps to a discrete integer threshold level
-$L in {0, ..., N-1}$ where $N$ is configurable (1--10), and each level yields
+$L in {0, ..., k-1}$ where $k$ is configurable (1--10), and each level yields
 a firing probability. Optionally, neurons implement a three-state refractory
 machine: Normal ($s = 0$), Absolute Refractory Period (ARP, $s = 1$), and
 Relative Refractory Period (RRP, $s = 2$), with reduced firing probability
@@ -259,13 +255,14 @@ _Probabilistic Computation Tree Logic_ (PCTL) extends CTL to stochastic
 systems by replacing the universal/existential path quantifiers with a
 probabilistic operator $P_(⋈ p) [psi]$, which asserts that the
 probability of satisfying path formula $psi$ meets the bound
-$⋈ p$ @BaierKatoen2008. For instance,
+$⋈ p$ @hansson1994logic @BaierKatoen2008. For instance,
 $P_(>= 1)[bold(F) (y_n = 1)]$ asserts that neuron $n$ fires with probability
 one, while $P_(>= 1)[bold(G) (y_n = 0)]$ asserts permanent silence.
 
 The role of a _probabilistic model checker_ is to compute, given a DTMC
-$cal(D)$ and a PCTL property $phi$, the exact probability with which $phi$
-is satisfied from the initial state. In the context of SNN verification, this
+$cal(D)$ and a PCTL property $phi$, the probability with which $phi$ is
+satisfied from the initial state by exhaustive numerical analysis, up to
+floating-point precision. In the context of SNN verification, this
 serves two purposes: (i)~_validating model correctness_---confirming that
 the formal DTMC encoding faithfully reproduces expected neural behaviours
 (e.g., tonic spiking under sustained input, silence without input); and
@@ -339,29 +336,22 @@ so the discretized neuron is _at least as hard_ to fire as the original. This
 conservative calibration prevents false-positive firings and is essential for
 the soundness guarantee established in @sec-soundness.
 
-== Threshold-Dependent Leak Factor <sec-leak>
+== Multiplicative Leak <sec-leak>
 
-#definition[
-  The _discretized leak factor_ is:
-  $ lambda_d = - max(1, floor(ell dot.c T_d)) $
-  where $ell in [0,1]$ is the leak rate ($ell = 1 - r$ with retention rate $r$).
-]
-
-This formulation links the leak to $T_d$ rather than to the number of
-equivalence classes $k$. Since $T_d$ scales with the actual potential range,
-the decay remains proportional to realistic membrane dynamics. The
-$max(1, ...)$ floor ensures a minimum decay of one unit per step, which is
-required by the Soundness theorem (@sec-soundness). The class evolution
-becomes:
-$ c'_n = op("clamp")(c_n + Delta(C_n) + lambda_d, 0, k) $
-where $Delta(C_n) = op("clamp")(lr(⌊ C_n \/ gamma ⌉), -k, k)$ is the class
-delta function with class width $gamma = T_d \/ k$.
+In the discretized model, the membrane potential decays via the same
+multiplicative leak as the original LIF dynamics (@eq-lif): the discretized
+update rule is
+$ p'_n = floor(r dot.c p_n) + C_n $
+where $C_n$ is the weighted contribution from @eq-contribution and $r in [0,1]$
+is the leak factor. Since $r < 1$, the floor operation guarantees that
+$floor(r dot.c p_n) < p_n$ for all $p_n > 0$, ensuring strict decay in the
+absence of input. This preserves strict isomorphism between the simulation
+engine and the PRISM model.
 
 == Formal Proofs <sec-proofs>
 
-This subsection presents the formal proofs of the key correctness
-properties. For complete derivations, the reader is referred to the
-extended appendix.
+This subsection presents the complete proofs of the key correctness
+properties.
 
 === Threshold Preservation (Completeness) <sec-completeness>
 
@@ -397,18 +387,18 @@ extended appendix.
 === Asymptotic Silence (Soundness) <sec-soundness>
 
 #theorem[
-  Let $cal(N)'$ be a discretized neuron with potential $P_t < T_d$ and leak
-  factor $lambda_d <= -1$. If the input is zero for all $t' >= t$ (i.e.,
-  $S_d = 0$ henceforth), then $cal(N)'$ will never fire.
+  Let $cal(N)'$ be a discretized neuron with potential $p_t < T_d$ and leak
+  factor $r < 1$. If the input is zero for all $t' >= t$ (i.e., $C_n = 0$
+  henceforth), then $cal(N)'$ will never fire.
 ]
 
 #proof[
-  Without input, $P_(t+1) = max(0, P_t + lambda_d)$. Since
-  $lambda_d <= -1$ and $P_t > 0$, the potential strictly decreases:
-  $P_(t+1) <= P_t - 1$. The sequence converges to the absorbing state $P = 0$.
-  Since the trajectory is non-increasing and starts below $T_d$, the firing
-  condition $P >= T_d$ is never met. At $P = 0$, the threshold level is $L = 0$,
-  which maps to firing probability zero, ensuring permanent silence.
+  Without input, $p_(t+1) = floor(r dot.c p_t)$. Since $r < 1$ and $p_t > 0$,
+  we have $floor(r dot.c p_t) < p_t$; hence the potential is strictly
+  decreasing and converges to the absorbing state $p = 0$. Since the trajectory
+  is non-increasing and starts below $T_d$, the firing condition $p >= T_d$ is
+  never met. At $p = 0$, the threshold level is $L = 0$, which maps to firing
+  probability zero, ensuring permanent silence.
 ]
 
 === Biological Property Preservation <sec-bio-preservation>
@@ -417,17 +407,18 @@ The discretized model preserves the core LIF properties formalized by De Maria
 et al.~@naco20:
 
 - *Tonic spiking.* Under constant input $C_"in"$, the neuron has non-zero
-  firing probability iff $C_"in" > |lambda_d|$. When satisfied, the potential
-  accumulates to a level $L > 0$, yielding periodic probabilistic spiking with
-  expected inter-spike interval $"ISI" = ceil(T_d \/ (C_"in" - |lambda_d|))$.
+  firing probability iff the net gain per step overcomes the multiplicative
+  decay, i.e., $C_"in" > T_d dot.c (1 - r)$. When satisfied, the potential
+  accumulates toward the steady state $p_"ss" = C_"in" \/ (1 - r)$, yielding
+  periodic probabilistic spiking.
 
 - *Integrator.* The probability of immediate firing on simultaneous inputs
   reaches 1.0 iff $sum delta_W(w_i) >= T_d$. Below threshold, the response is
   graded via the threshold level mapping.
 
 - *Excitability.* The expected inter-spike interval decreases monotonically as
-  input strength increases, since $"ISI" = ceil(T_d \/ (C_"in" - |lambda_d|))$
-  is a decreasing function of $C_"in"$.
+  input strength increases, since stronger input yields higher net accumulation
+  per step and a faster approach to threshold.
 
 
 // ─── 5. The CogSpike Workbench (~0.75 pages) ────────────────────────────────
@@ -492,7 +483,7 @@ limits of PRISM-based SNN verification.
 
 The PRISM model for an SNN $G = (V, E)$ consists of four module types:
 
-- *GlobalClock*: a step counter with $T_"max" + 1$ states.
+- *GlobalClock*: a step counter with $T_"max" + 1$ states, where $T_"max"$ is the verification horizon.
 - *Inputs*: $2^(|V_"in"|)$ states (one binary variable per input neuron).
 - *Neuron* $M_n$: per-neuron state depends on configuration:
   - _Fast_ ($k = 10$ threshold levels, no refractory):
@@ -501,17 +492,22 @@ The PRISM model for an SNN $G = (V, E)$ consists of four module types:
     $|S_n^"full"| = 3 dot.c 3 dot.c 5 dot.c 2 dot.c R_n = 90 dot.c R_n$.
   - _Discretized_ ($W = 3$):
     $|S_n^"disc"| = 2 dot.c (P_("max",n)^d + 1)$ where
-    $P_("max",n)^d = T_d + E_n^d$.
+    $P_("max",n)^d = T_d + E_n^d$ and $E_n^d = sum_(i: w_(i,n) > 0) delta_W (w_(i,n))$
+    is the summed positive discretized in-weight (excitatory headroom).
 - *Transfer* $T_(i,j)$: 2 states per internal edge (representing the intermediate state of a spike traveling along a synapse).
+
+Throughout this section, _Fast_ and _Full_ denote precise-model refractory
+settings (no refractory vs. ARP/RRP) at the full $k = 10$ resolution, as
+distinct from the reduced-level GUI presets of @sec-cogspike.
 
 #theorem[
   *(State Space Product).* The theoretical state space is the Cartesian product
   of all module state spaces:
   $ |S_"theory"| = (T_"max"+1) dot.c 2^(|V_"in"|) dot.c product_(n in V_"proc") f_n (C) dot.c 2^(|E_"int"|) $
-  where $f_n (C) = |S_n|$ depends on the model configuration $C$. The $2^(|E_"int"|)$ factor accounts for the binary states of all internal transfer edges.
+  where $f_n (C) = |S_n|$ depends on the model configuration $C$. The $2^(|E_"int"|)$ factor accounts for the binary states of all internal transfer edges $E_"int" subset.eq E$ (synapses whose source is not an input neuron).
 ]
 
-For a chain of $N$ neurons with $P_"rth" = 100$ and weight $w = 80$: the
+For a chain of $N$ neurons with threshold $T = 100$ and weight $w = 80$: the
 per-neuron factor is $f_n = 2 dot.c 121 = 242$ (fast precise), dropping to
 $f_n = 2 dot.c 7 = 14$ (discretized $W = 3$). The per-neuron reduction factor
 is $242 \/ 14 approx 17.3 times$.
@@ -543,7 +539,7 @@ Fast: no refractory period, Full: complete refractory dynamics), and 3 model typ
     [Chain-4 (4N)], [42], [6,917], [362,289], [88],
     [Fork (3N)], [12], [83], [3,388], [15],
     [Diamond (5N)], [15], [1,511], [OOM], [98],
-    [Convergent (1N)], [17], [20], [65], [16],
+    [Convergent (3N)], [17], [20], [65], [16],
   ),
   caption: [Reachable DTMC states $|S_"reachable"|$ by topology and
     configuration. All precise models use $k = 10$ threshold levels.
@@ -599,7 +595,9 @@ The discretization function $delta_W$ maps continuous synaptic weights to a
 compact integer range while preserving threshold feasibility (Theorem~1) and
 preventing spurious spikes (Theorem~2). The core biological properties of LIF
 neurons---tonic spiking, integrator behaviour, and excitability @naco20 ---are
-maintained by the threshold-dependent leak factor $lambda_d$.
+maintained under the multiplicative-leak update $p'_n = floor(r dot.c p_n) + C_n$.
+These guarantees are delivered through CogSpike, the unified
+design--simulate--verify workbench of @sec-cogspike.
 
 The topology-dependent scaling analysis demonstrates that the state space
 reduction compounds exponentially across neurons: approximately $17 times$ per
