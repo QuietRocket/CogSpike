@@ -1,29 +1,41 @@
-// Formal Verification of Spiking Neural Networks
-// via Weight-Discretized Quotient Abstractions
+// Formal Verification of Probabilistic Spiking Neural Networks
+// via Weight-Discretized Quotient Abstractions  —  EXTENDED VERSION (for arXiv)
 //
-// ICANN 2026 — Double-blind submission (LNCS format)
-// Constraint: max 12 pages INCLUDING references
+// Long companion to the camera-ready (camera_ready.typ). It carries the full
+// proofs (Section 4.4) and the topology-dependent scaling study (Section 6),
+// to which the conference version links. No strict page limit (arXiv).
 //
-// Page budget (12 pages):
-//   Title + Abstract (0.5p) + Intro (1p) + Related Work (0.5p) + Prelim (1.5p)
-//   = 3.5p background
-//   Weight-Disc Quotient Abstraction (2.5p) + CogSpike (0.75p) + Scaling (2p) + Conclusion (0.5p)
-//   = 5.75p contributions
-//   References (~1p)
+// ─────────────────────────────────────────────────────────────────────────────
+// TODO — reconcile with the camera-ready at the Friday review. These are
+//        research-content calls, deliberately NOT changed autonomously:
+//   (1) Leak model: this long version still uses the threshold-dependent
+//       ADDITIVE leak factor lambda_d (Section 4.3 / soundness proof / bio
+//       properties), whereas the accepted paper uses the MULTIPLICATIVE leak
+//       floor(r·p)+C. The WTA case study requires the multiplicative form
+//       (see research/quotient-abstraction/README.md). Pick the canonical
+//       model and make both versions agree.
+//   (2) Theorem 2 (Asymptotic Silence): the conference version states a
+//       single-step form; the proof here is the absorbing-silence (no-input)
+//       form. Settle the canonical statement.
+//   (3) Optionally fold the contralateral-inhibition case study in here too,
+//       so the long version is a strict superset of the short one.
+// ─────────────────────────────────────────────────────────────────────────────
 
 #import "llncs.typ": *
 
-// ── Anonymized institute (double-blind) ──────────────────────────────────────
-#let inst-anon = institute("Anonymous Institution")
+// ── Institute ────────────────────────────────────────────────────────────────
+#let inst-uns = institute("Université Côte d'Azur, CNRS, I3S, France")
 
 // ── Apply template ───────────────────────────────────────────────────────────
 #show: lncs.with(
-  title: "A tool for Formal Verification of Spiking Neural Networks via Weight-Discretized Quotient Abstractions",
+  title: "A tool for Formal Verification of\n Probabilistic Spiking Neural Networks\nvia Weight-Discretized Quotient Abstractions",
   authors: (
-    author("Anonymous submission", insts: (inst-anon,)),
+    author("Nikan Zandian Jazi", insts: (inst-uns,)),
+    author("Elisabetta De Maria", insts: (inst-uns,)),
+    author("Christopher Leturc", insts: (inst-uns,)),
   ),
   running-title: "Formal Verification of SNNs via Weight-Discretized Quotient Abstractions",
-  running-authors: "Anonymous",
+  running-authors: "N. Zandian Jazi, E. De Maria, C. Leturc",
   abstract: [
     Spiking Neural Networks (SNNs) model biological neural dynamics more
     faithfully than classical artificial networks, but their stochastic,
@@ -62,6 +74,10 @@
   ),
   bib: bibliography("refs.bib"),
 )
+
+// Extended-version banner
+#align(center)[#text(size: 9pt, style: "italic")[Extended version of the paper accepted at the International Conference on Artificial Neural Networks (ICANN)~2026, with the full proofs of @sec-proofs and the topology-dependent scaling analysis of @sec-scaling.]]
+#v(0.2cm)
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -106,7 +122,7 @@ This paper pursues precisely that compromise. We propose CogSpike, a unified
 tool for probabilistic spiking neural networks that integrates three tightly
 coupled capabilities within a single isomorphic framework: (i)~_simulation_ of
 LIF-based SNN dynamics, (ii)~_formal modelling_ of the same networks as DTMCs
-for the PRISM model checker @PRISM2011, and (iii)~_automated model checking_
+for the PRISM model checker @PRISM2011 (a tool that computes the _exact_ probability with which a temporal-logic property holds over a DTMC), and (iii)~_automated model checking_
 of behavioural properties expressed in Probabilistic Computation Tree Logic
 (PCTL). The underlying neuron model employs a weight-discretized quotient
 abstraction that overcomes the limitations of naïve quotient
@@ -205,12 +221,12 @@ weights $w_e in [-100, 100]$.
 
 Each processing neuron $n in V_"proc"$ follows Leaky Integrate-and-Fire (LIF)
 dynamics @naco20 @hodgkin1952quantitative. Let $ell in [0,1]$ be the leak
-factor and $P_"rth"$ be the firing threshold. At each discrete time step $t$,
+factor and $T$ be the firing threshold. At each discrete time step $t$,
 the membrane potential integrates incoming weighted spikes and decays toward
 rest:
 $ p_n (t+1) = max(0, (1 - ell) dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c y_i (t)) $ <eq-lif>
 where $y_i (t)$ is the spike event of presynaptic neuron $i$ at time $t$.
-When $p_n (t+1) >= P_"rth"$, neuron $n$ emits a spike ($y_n (t+1) = 1$) and
+When $p_n (t+1) >= T$, neuron $n$ emits a spike ($y_n (t+1) = 1$) and
 resets to zero.
 
 Firing is _probabilistic_: the potential maps to a discrete integer threshold level
@@ -417,14 +433,10 @@ et al.~@naco20:
 // ─── 5. The CogSpike Workbench (~0.75 pages) ────────────────────────────────
 = The CogSpike Workbench <sec-cogspike>
 
-Existing SNN simulation platforms offer varying levels of stochastic
-modelling---Brian~2 @stimberg2019brian2 supports stochastic firing thresholds
-via escape noise, while Nengo @bekolay2014nengo, NEST @gewaltig2007nest, and
-BindsNET @hazan2018bindsnet are limited to noise injection at the input
-level---but none integrate probabilistic model checking for formal
-verification.
-
-CogSpike bridges this gap by unifying _probabilistic_ SNN _design_,
+Building on the abstraction of @sec-weight-disc, CogSpike turns the
+design--simulate--verify loop into a single tool. Whereas the simulators
+surveyed in @sec-related provide stochastic dynamics but no path to formal
+verification, CogSpike unifies _probabilistic_ SNN _design_,
 _simulation_, and _verification_ in a single desktop workbench. The tool is
 implemented in Rust with an immediate-mode GUI (egui), and its core design
 principle is *strict isomorphism*: the PRISM code generator produces a DTMC
@@ -451,8 +463,9 @@ The workbench provides:
   DTMC model. The generator supports both _precise_ and _weight-discretized
   quotient_ abstraction modes (@sec-weight-disc), and synthesizes PCTL
   properties for reachability, safety, and liveness verification.
-  Per-neuron potential bounds are computed from fan-in analysis to minimize
-  the state space.
+  Per-neuron potential bounds are computed from _fan-in analysis_---bounding
+  each neuron's reachable potential from the signs and magnitudes of its
+  incoming weights---to minimize the state space.
 
 + A *verification bridge* that invokes the PRISM model checker as a
   background process with configurable engine selection (explicit, sparse,
