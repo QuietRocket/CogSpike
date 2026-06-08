@@ -50,10 +50,10 @@
     presents CogSpike, a unified workbench that integrates SNN design,
     simulation, and PRISM-based formal verification within a single
     isomorphic tool chain. The discretization is accompanied by formal
-    correctness guarantees: a Threshold Preservation theorem (completeness)
-    ensures that no fireable configurations are lost, and an Asymptotic
-    Silence theorem (soundness) guarantees that spurious firing cannot
-    persist. A topology-dependent scaling analysis shows that the state
+    correctness guarantees: a two-sided fidelity theorem confines any firing
+    disagreement to a bounded gray zone around threshold, and an Asymptotic
+    Silence theorem gives the exact limit guarantee that unforced neurons fall
+    permanently silent. A topology-dependent scaling analysis shows that the state
     space reduction compounds exponentially---approximately 17$times$ per
     neuron for discretization parameter $W = 3$---enabling verification of
     networks that are otherwise intractable, as confirmed empirically across
@@ -130,10 +130,11 @@ Concretely, the contributions are fourfold:
   finite discrete range while preserving threshold feasibility and relative
   synaptic contributions (@sec-disc-function).
 
-+ *Formal correctness proofs*: a _Threshold Preservation_ theorem
-  (completeness) and an _Asymptotic Silence_ theorem (soundness) guaranteeing
-  that the discretization neither loses fireable configurations nor sustains
-  spurious firing (@sec-proofs).
++ *Formal correctness proofs*: a two-sided _discretization-fidelity_ theorem
+  that confines any firing disagreement to a bounded gray zone (with a
+  constructive rule for choosing $W$), and an _Asymptotic Silence_ theorem
+  giving the exact limit guarantee that unforced neurons fall silent
+  (@sec-proofs).
 
 + A *topology-dependent state space analysis* with closed-form formulas for
   DTMC size as a function of network structure, validated empirically across
@@ -353,38 +354,47 @@ engine and the PRISM model.
 This subsection presents the complete proofs of the key correctness
 properties.
 
-=== Threshold Preservation (Completeness) <sec-completeness>
+=== Two-Sided Discretization Fidelity <sec-completeness>
+
+The weight discretization is a bounded-error quantization. Each
+$delta_W(w_i) = lr(⌊ w_i dot.c W \/ w_"max" ⌉)$ lies within $1\/2$ of
+$w_i dot.c W \/ w_"max"$, so for any pattern $bold(y)$ with weighted sum
+$S = sum_i w_i y_i$ and $m^* = sum_i y_i$ active inputs the discretized sum
+$S_d = sum_i delta_W(w_i) y_i$ satisfies
+$ S dot.c W \/ w_"max" - m^* \/ 2 <= S_d <= S dot.c W \/ w_"max" + m^* \/ 2. $ <eq-sd-bound>
+The next theorem turns this error bound into a two-sided firing guarantee.
 
 #theorem[
-  Let $cal(N)$ be a neuron with weights ${w_1, ..., w_m}$ and threshold $T$.
-  If $cal(N)$ can fire in a single step (i.e., $exists bold(y) in {0,1}^m$ such
-  that $sum_(i=1)^m w_i dot.c y_i >= T$), then the discretized neuron $cal(N)'$
-  with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and threshold $T_d$ can
-  also fire.
+  Let $cal(N)$ be a neuron with threshold $T$ and fan-in $m$, and let
+  $T_d = ceil(T dot.c W \/ w_"max")$. For an input pattern with weighted sum $S$:
+  + _(Completeness)_ if $S - T >= w_"max" (m\/2 + 1) \/ W$, the discretized
+    neuron fires, i.e. $S_d >= T_d$;
+  + _(Soundness)_ if $T - S > w_"max" m \/ (2 W)$, the discretized neuron does
+    not fire, i.e. $S_d < T_d$.
 ]
 
 #proof[
-  Let $bold(y)^*$ be a firing input pattern with weighted sum
-  $S = sum w_i y_i^* >= T$, and let $m^* = sum y_i^* <= m$ denote the number of
-  active inputs. By definition of rounding to the nearest integer,
-  $delta_W(w_i) = lr(⌊ w_i dot.c W \/ w_"max" ⌉)$ satisfies
-  $ delta_W(w_i) >= w_i dot.c W \/ w_"max" - 1\/2 $ <eq-rounding-lb>
-  Multiplying @eq-rounding-lb by $y_i^* in {0,1}$ and summing over all inputs:
-  $
-    S_d = sum_(i=1)^m delta_W(w_i) dot.c y_i^*
-    >= sum_(i=1)^m w_i y_i^* dot.c W \/ w_"max" - 1\/2 sum_(i=1)^m y_i^*
-    = S dot.c W \/ w_"max" - m^* \/ 2
-  $ <eq-sd-bound>
-  Each active input contributes at most $-1\/2$ of rounding error, yielding
-  a cumulative shortfall of $-m^*\/2$. Since
-  $T_d = ceil(T dot.c W \/ w_"max") <= T dot.c W \/ w_"max" + 1$,
-  the discretized neuron fires ($S_d >= T_d$) whenever:
-  $ (S - T) dot.c W \/ w_"max" >= m^* \/ 2 + 1 $
-  Since $S >= T$ by hypothesis and $m^* <= m$, this holds for
-  $W >= w_"max" dot.c (m\/2 + 1) \/ T$.
+  The ceiling gives $T dot.c W \/ w_"max" <= T_d <= T dot.c W \/ w_"max" + 1$.
+  _Completeness:_ by @eq-sd-bound and $m^* <= m$,
+  $S_d >= S W\/w_"max" - m\/2 >= T W\/w_"max" + 1 >= T_d$, where the middle
+  inequality uses $S - T >= w_"max"(m\/2 + 1)\/W$. _Soundness:_ by @eq-sd-bound,
+  $S_d <= S W\/w_"max" + m\/2 < T W\/w_"max" <= T_d$, where the strict
+  inequality uses $T - S > w_"max" m\/(2W)$.
 ]
 
-=== Asymptotic Silence (Soundness) <sec-soundness>
+Equivalently, the discretized decision matches the original outside a _gray
+zone_ of half-width $w_"max" m \/ (2 W)$ around threshold (with an extra
+$w_"max"\/W$ on the firing side from the ceiling), and the ceiling calibration
+biases borderline cases toward silence. The bound is constructive: to preserve a
+single-step firing with margin $gamma = S - T > 0$, choose
+$W >= w_"max" (m\/2 + 1) \/ gamma$; a smaller $W$ widens the gray zone---the
+price paid for the state-space compression.
+
+=== Asymptotic Silence <sec-soundness>
+
+The two-sided bound leaves a gray zone in which a single step may flip, but the
+multiplicative leak removes the ambiguity in the limit: once the input ceases, a
+subthreshold neuron is silent forever---an exact guarantee with no gray zone.
 
 #theorem[
   Let $cal(N)'$ be a discretized neuron with potential $p_t < T_d$ and leak
@@ -401,17 +411,17 @@ properties.
   probability zero, ensuring permanent silence.
 ]
 
-*Remark (single-step soundness).* The asymptotic statement is the strongest
-soundness guarantee compatible with compression. Because $delta_W$ rounds each
-weight by up to $1\/2$, the discretized contribution can exceed its scaled
-original by as much as $m\/2$, so an isolated subthreshold step is not
-guaranteed silent once the fan-in $m >= 2$ (e.g. $w_1 = w_2 = 50$, $T = 120$,
-$W = 3$: the original can never fire, yet $delta_3(50) = 2$ yields a discretized
-sum $4 = T_d$). Restoring exact single-step soundness would require
-$W > w_"max" dot.c m \/ 2$, which negates the state-space reduction; the
-leak-driven absorbing silence above therefore secures soundness at the level of
-the limit behaviour that the verified PCTL properties---e.g.
-$bold(F) bold(G)(y_n = 0)$ for losing neurons---actually require.
+*Remark (the gray zone is intrinsic).* No $W$ in the compression regime closes
+the gray zone. Exact single-step completeness needs
+$T_d <= T W\/w_"max" - m\/2$ and exact single-step soundness needs
+$T_d > (T - 1) W\/w_"max" + m\/2$; together these force $W > m dot.c w_"max"$,
+which annihilates the reduction. Both failure modes are real at $W = 3$,
+$w_"max" = 100$: a single weight $w = 80 = T$ rounds to $delta_3(80) = 2 < T_d = 3$
+(a fireable neuron silenced), while $w_1 = w_2 = 50 < T = 120$ rounds to
+$delta_3(50) = 2$ each, summing to $4 = T_d$ (a subthreshold neuron made to
+fire). The absorbing silence of Theorem~2 is therefore the operative soundness
+guarantee---it is exact and matches the limit behaviour the verified PCTL
+properties (e.g. $bold(F) bold(G)(y_n = 0)$ for losing neurons) actually require.
 
 === Biological Property Preservation <sec-bio-preservation>
 
@@ -604,8 +614,8 @@ biological fidelity of probabilistic models against the compact state spaces
 demanded by model checking. This paper presented a weight-discretized
 quotient model abstraction that resolves this tension.
 The discretization function $delta_W$ maps continuous synaptic weights to a
-compact integer range while preserving threshold feasibility (Theorem~1) and
-preventing spurious sustained firing (Theorem~2). The core biological properties of LIF
+compact integer range while bounding any firing disagreement to a quantization
+gray zone (Theorem~1) and preventing spurious sustained firing (Theorem~2). The core biological properties of LIF
 neurons---tonic spiking, integrator behaviour, and excitability @naco20 ---are
 maintained under the multiplicative-leak update $p'_n = floor(r dot.c p_n) + C_n$.
 These guarantees are delivered through CogSpike, the unified

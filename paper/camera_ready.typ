@@ -53,8 +53,8 @@
     simulation, and PRISM-based formal verification within a single
     tool chain. The discretization is accompanied by formal
     correctness guarantees: a Threshold Preservation theorem
-    ensures that no fireable configurations are lost, and an Asymptotic
-    Silence theorem guarantees that spurious firing cannot
+    ensures that firing configurations with sufficient margin are preserved,
+    and an Asymptotic Silence theorem guarantees that spurious firing cannot
     persist. A case study on contralateral inhibition demonstrates the
     full design--simulate--verify workflow and confirms that the
     discretized model preserves Winner-Takes-All dynamics with a
@@ -139,7 +139,7 @@ partitioning states into equivalence classes.
 
 Concretely, the contributions are threefold:
 (1)~a _weight discretization scheme_ that maps continuous synaptic weights to a finite discrete range while preserving threshold feasibility and relative synaptic contributions;// (@sec-disc-function);
-(2) a _Threshold Preservation_ theorem ensuring that every input pattern triggering a spike in the original model also triggers one in the discretized model, and an _Asymptotic Silence_ theorem guaranteeing that the discretized model cannot sustain spurious firing;// (@sec-proofs); and
+(2) a _Threshold Preservation_ theorem ensuring that firing patterns with sufficient margin are preserved by the discretization, and an _Asymptotic Silence_ theorem guaranteeing that the discretized model cannot sustain spurious firing;// (@sec-proofs); and
 (3)~*CogSpike*#footnote[All code and experiments are available at #link("https://github.com/QuietRocket/CogSpike").], a unified workbench integrating SNN design, simulation, and formal verification, whose code generator produces a PRISM representation isomorphic to the simulation engine, enabling automated formal modelling and model checking.// (@sec-cogspike).
 #resp("R1", [The complete formal proofs, additional derivations, and an empirical scaling study across seven canonical topologies are provided in the extended version of this paper @cogspikeExtended.])
 The remainder surveys related work (@sec-related) and background (@sec-prelim), presents the weight-discretized abstraction (@sec-weight-disc) and the CogSpike workbench (@sec-cogspike), and reports a contralateral-inhibition case study (@sec-casestudy).
@@ -341,13 +341,13 @@ The following theorem ensures that discretization does not suppress any firing c
 #theorem[
   *(Threshold Preservation.)*
   Let $cal(N)$ be a neuron with weights ${w_1, ..., w_m}$ and threshold $T$.
-  If $cal(N)$ can fire in a single step (i.e., $exists bold(y) in {0,1}^m$ such
-  that $sum_(i=1)^m w_i dot.c y_i >= T$), then the discretized neuron $cal(N)'$
-  with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and threshold $T_d$ can
-  also fire.
+  If $cal(N)$ can fire with margin (i.e., $exists bold(y) in {0,1}^m$ such
+  that $sum_(i=1)^m w_i dot.c y_i >= T + w_"max"(m\/2+1)\/W$), then the discretized
+  neuron $cal(N)'$ with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and
+  threshold $T_d$ can also fire.
 ]
 
-#resp("R4", [The proof is constructive and yields a practical rule for _choosing_ $W$: any $W >= w_"max" (m\/2 + 1) \/ T$ preserves every single-step firing, where $m$ is the fan-in. Hence $W$ can be fixed directly from a network's weight range and thresholds instead of being tuned by hand.])
+#resp("R4", [The proof is constructive and yields a practical rule for _choosing_ $W$: a single-step firing with margin $gamma = sum_i w_i y_i - T$ is preserved by any $W >= w_"max" (m\/2 + 1) \/ gamma$, where $m$ is the fan-in. Weights within $w_"max" m \/ (2 W)$ of threshold may flip---the gray zone that $W$ trades against the state-space reduction.])
 
 Conversely, the next theorem provides a safety guarantee: the discretization cannot sustain spurious firing.
 
