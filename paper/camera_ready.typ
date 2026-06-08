@@ -8,7 +8,7 @@
 //   typst compile camera_ready.typ camera_ready_review.pdf                (marked-up)
 //   typst compile --input review=false camera_ready.typ camera_ready.pdf  (clean final)
 // Full proofs + the 7-topology scaling study live in the extended version
-// (main.typ -> arXiv), to which this paper links (see EXTENDED below).
+// (main.typ -> arXiv), cited here as @cogspikeExtended.
 
 #import "llncs.typ": *
 
@@ -20,8 +20,7 @@
   highlight(fill: rgb("#fff2a8"))[#body#h(0.05em)#super(text(size: 6pt, fill: rgb("#cc0000"), weight: "bold")[#id])]
 } else { body }
 
-// Extended version (full proofs + scaling tables). TODO: insert real arXiv ID.
-#let EXTENDED = "arXiv:2506.XXXXX"
+// Extended version cited as @cogspikeExtended (see refs.bib).
 
 // ── Institutes ───────────────────────────────────────────────────────────────
 #let inst-uns = institute("Université Côte d'Azur, CNRS, I3S, France")
@@ -69,7 +68,7 @@
     "Quotient Abstraction",
     "Weight Discretization",
   ),
-  acknowledgments: if REVIEW { text(fill: rgb("#cc0000"))[*[TODO: funding / grant acknowledgments]*] } else { none },
+  acknowledgments: none,
   disclosure: [The authors have no competing interests to declare that are relevant to the content of this article.],
   bib: bibliography("refs.bib"),
 )
@@ -88,7 +87,7 @@
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PAPER BODY — 6 sections + references
+// PAPER BODY — 7 sections + references
 // ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -131,7 +130,7 @@ This paper addresses that challenge. We propose CogSpike, a unified
 tool for probabilistic spiking neural networks that integrates three tightly
 coupled capabilities within a single framework: (i)~_simulation_ of probabilistic
 LIF-based SNN dynamics, (ii)~_formal modelling_ of the same networks as DTMCs
-for #resp("R5", [the PRISM model checker @PRISM2011 (a tool that computes the _exact_ probability with which a temporal-logic property holds over a DTMC)]), and (iii)~_automated model checking_
+for #resp("R5", [the PRISM model checker @PRISM2011 (a tool that computes the probability with which a temporal-logic property holds over a DTMC, up to floating-point precision)]), and (iii)~_automated model checking_
 of behavioural properties expressed in Probabilistic Computation Tree Logic
 (PCTL) @hansson1994logic. The underlying neuron model employs a weight-discretized quotient
 abstraction that overcomes the limitations of naïve quotient
@@ -141,8 +140,8 @@ partitioning states into equivalence classes.
 Concretely, the contributions are threefold:
 (1)~a _weight discretization scheme_ that maps continuous synaptic weights to a finite discrete range while preserving threshold feasibility and relative synaptic contributions;// (@sec-disc-function);
 (2) a _Threshold Preservation_ theorem ensuring that every input pattern triggering a spike in the original model also triggers one in the discretized model, and an _Asymptotic Silence_ theorem guaranteeing that the discretized model introduces no spurious spikes absent from the original;// (@sec-proofs); and
-(3)~*CogSpike*, a unified workbench integrating SNN design, simulation, and formal verification, whose code generator produces a PRISM representation isomorphic to the simulation engine, enabling automated formal modelling and model checking.// (@sec-cogspike).
-#resp("R1", [The complete formal proofs, additional derivations, and an empirical scaling study across seven canonical topologies are provided in the extended version of this paper (#EXTENDED).])
+(3)~*CogSpike*#footnote[All code and experiments are available at #link("https://github.com/QuietRocket/CogSpike").], a unified workbench integrating SNN design, simulation, and formal verification, whose code generator produces a PRISM representation isomorphic to the simulation engine, enabling automated formal modelling and model checking.// (@sec-cogspike).
+#resp("R1", [The complete formal proofs, additional derivations, and an empirical scaling study across seven canonical topologies are provided in the extended version of this paper @cogspikeExtended.])
 The remainder surveys related work (@sec-related) and background (@sec-prelim), presents the weight-discretized abstraction (@sec-weight-disc) and the CogSpike workbench (@sec-cogspike), and reports a contralateral-inhibition case study (@sec-casestudy).
 
 
@@ -215,14 +214,14 @@ dynamics @naco20 @hodgkin1952quantitative. Let $r in [0,1]$ be the leak
 factor and #resp("R5", $T$) be the firing threshold. At each discrete time step $t$,
 the membrane potential _p_ integrates incoming weighted spikes and decays toward
 rest:
-$ p_n (t+1) = max(0, r dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c x_i (t)) $ <eq-lif>
-where $x_i (t) in {0,1}$ is the spike event of presynaptic neuron $i$ at time $t$.
-When $p_n (t+1) >= T$, neuron $n$ emits a spike //($y_n (t+1) = 1$)
+$ p_n (t+1) = max(0, r dot.c p_n (t) + sum_(i in "In"(n)) w_(i,n) dot.c y_i (t)) $ <eq-lif>
+where $y_i (t) in {0,1}$ is the spike event of presynaptic neuron $i$ at time $t$.
+When $p_n (t+1) >= T$, neuron $n$ emits a spike ($y_n (t+1) = 1$)
 and resets to zero.
 
 Firing is _probabilistic_: the potential maps to a discrete threshold level
-$L in {0, ..., N-1}$ ($N$ configurable, 1--10), each level yielding a firing
-probability. Optionally, neurons implement a three-state refractory model---Normal,
+$L in {0, ..., k-1}$ ($k$ configurable, 1--10), each level yielding a firing
+probability. Optionally, neurons implement a three-state refractory machine---Normal,
 Absolute (ARP), and Relative (RRP)---with firing probability during RRP scaled by
 $alpha$.
 
@@ -246,8 +245,8 @@ $P_(>= 1)[bold(F) (y_n = 1)]$ asserts that neuron $n$ fires with probability one
 and $P_(>= 1)[bold(G) (y_n = 0)]$ permanent silence.
 
 The role of a _probabilistic model checker_ is to compute, given a DTMC
-$cal(D)$ and a PCTL property $phi$, the exact probability with which $phi$
-is satisfied from the initial state. In the context of SNN verification, this
+$cal(D)$ and a PCTL property $phi$, the probability with which $phi$
+is satisfied from the initial state, up to floating-point precision. In the context of SNN verification, this
 serves two purposes: (i)~_validating model correctness_, i.e., confirming that
 the formal DTMC encoding faithfully reproduces expected neural behaviours
 (e.g., tonic spiking under sustained input, silence without input); and
@@ -264,7 +263,7 @@ whose efficiency depends on variable ordering.
 
 == Quotient Model Abstraction <sec-quotient>
 
-Quotient model abstraction @Katoen2016 reduces the DTMC state space by
+Quotient model abstraction @BaierKatoen2008 @Katoen2016 reduces the DTMC state space by
 partitioning _probabilistically bisimilar_ states---those yielding identical
 firing probabilities and, under every input, transitioning to equivalent
 successor classes. This reduces the per-neuron state space from
@@ -342,24 +341,24 @@ The following theorem ensures that discretization does not suppress any firing c
 #theorem[
   *(Threshold Preservation.)*
   Let $cal(N)$ be a neuron with weights ${w_1, ..., w_m}$ and threshold $T$.
-  If $cal(N)$ can fire in a single step (i.e., $exists bold(x) in {0,1}^m$ such
-  that $sum_(i=1)^m w_i dot.c x_i >= T$), then the discretized neuron $cal(N)'$
+  If $cal(N)$ can fire in a single step (i.e., $exists bold(y) in {0,1}^m$ such
+  that $sum_(i=1)^m w_i dot.c y_i >= T$), then the discretized neuron $cal(N)'$
   with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and threshold $T_d$ can
   also fire.
 ]
 
-#resp("R4", [The proof---given in full in the extended version (#EXTENDED)---is constructive and yields a practical rule for _choosing_ $W$: any $W >= w_"max" (m\/2 + 1) \/ T$ preserves every single-step firing, where $m$ is the fan-in. Hence $W$ can be fixed directly from a network's weight range and thresholds instead of being tuned by hand.])
+#resp("R4", [The proof is constructive and yields a practical rule for _choosing_ $W$: any $W >= w_"max" (m\/2 + 1) \/ T$ preserves every single-step firing, where $m$ is the fan-in. Hence $W$ can be fixed directly from a network's weight range and thresholds instead of being tuned by hand.])
 
 Conversely, the next theorem provides a safety guarantee: discretization does not introduce spurious spikes.
 
 #theorem[
   *(Asymptotic Silence.)*
   Let $cal(N)$ be a neuron with weights ${w_1, ..., w_m}$ and threshold $T$.
-  If $cal(N)$ does not fire in a single step (i.e., $forall bold(x) in {0,1}^m$, $sum_(i=1)^m w_i dot.c x_i < T$), then the discretized neuron $cal(N)'$
-  with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and threshold $T_d$ does not fire (i.e.,  $sum_(i=1)^m delta_W (w_i) dot.c x_i' < T_d$).
+  If $cal(N)$ does not fire in a single step (i.e., $forall bold(y) in {0,1}^m$, $sum_(i=1)^m w_i dot.c y_i < T$), then the discretized neuron $cal(N)'$
+  with weights ${delta_W (w_1), ..., delta_W (w_m)}$ and threshold $T_d$ does not fire (i.e.,  $sum_(i=1)^m delta_W (w_i) dot.c y_i' < T_d$).
 ]
 
-#resp("R5", [The term _asymptotic_ reflects the temporal consequence: once supra-threshold input ceases, single-step soundness and the strict decay $floor(r dot.c p) < p$ ($r < 1$) drive the potential monotonically to the absorbing value $0 < T_d$, so the neuron stays silent for the entire remaining trajectory, not one step only (full inductive proof in the extended version, #EXTENDED).])
+#resp("R5", [The term _asymptotic_ reflects the temporal consequence: once supra-threshold input ceases, single-step soundness and the strict decay $floor(r dot.c p) < p$ ($r < 1$) drive the potential monotonically to the absorbing value $0 < T_d$, so the neuron stays silent for the entire remaining trajectory, not one step only.])
 
 == Biological Property Preservation <sec-bio-preservation>
 
@@ -389,7 +388,7 @@ implemented in Rust with an immediate-mode GUI (egui), and its core design
 principle is strict isomorphism: the PRISM code generator produces a DTMC
 representation that is isomorphic to the simulation engine, that is, both share the
 same mathematical model, namely the LIF dynamics of @eq-lif, the three-state
-refractory period model, and the probabilistic firing logic, so that verification
+refractory machine, and the probabilistic firing logic, so that verification
 results faithfully analyse simulation behaviour.
 
 The workbench provides:
@@ -451,7 +450,7 @@ The precise model yields 3,603 reachable states and 9,917 transitions, while
 the $W = 6$ discretized model reduces this to just 387 states and 1,000
 transitions, that is, a $bold(9.3 times)$ _state_ reduction and a $bold(9.9 times)$
 _transition_ reduction. This compression is especially notable given the
-recurrent inhibitory connections of the network. #resp("R1", [The saving is not specific to this topology: across seven canonical feedforward motifs the per-neuron reduction compounds at roughly $17 times$ per neuron (for $W = 3$), growing exponentially with network size. The full topology-by-topology measurements appear in the extended version (#EXTENDED).])
+recurrent inhibitory connections of the network. #resp("R1", [The saving is not specific to this topology: across seven canonical feedforward motifs the per-neuron reduction compounds at roughly $17 times$ per neuron (for $W = 3$), growing exponentially with network size. The full topology-by-topology measurements appear in the extended version @cogspikeExtended.])
 
 == Formal Verification of Winner-Takes-All Dynamics
 
@@ -482,7 +481,7 @@ $3,603$---demonstrating substantial compression without loss of verification
 fidelity.
 
 
-// ─── 8. Conclusion (~0.5 page) ──────────────────────────────────────────────
+// ─── 7. Conclusion (~0.5 page) ──────────────────────────────────────────────
 = Conclusion <sec-conclusion>
 
 Formal verification of spiking neural networks must balance faithfulness to the

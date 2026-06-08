@@ -334,7 +334,7 @@ the fan-in.
 The use of the ceiling function $op("ceil")$ (rather than rounding) ensures $T_d >= T dot.c W \/ w_"max"$,
 so the discretized neuron is _at least as hard_ to fire as the original. This
 conservative calibration prevents false-positive firings and is essential for
-the soundness guarantee established in @sec-soundness.
+the Asymptotic Silence guarantee (Theorem~2).
 
 == Multiplicative Leak <sec-leak>
 
