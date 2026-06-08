@@ -1,0 +1,322 @@
+% ============================================================================
+% Merged bibliography for deq/final/ — the DEQ synthesis.
+% Consolidates the per-thread refs.bib files (closed_form, population, wta,
+% wta_multi, neg_loop) plus FCS / formal-methods entries. Single style: ieee.
+% ============================================================================
+
+% ── The prior CogSpike paper (the discrete starting point) ──────────────────
+
+@inproceedings{cogspike_wd,
+  author    = {Zandian Jazi, Nikan and De Maria, Elisabetta and Leturc, Christopher},
+  title     = {A Tool for Formal Verification of Probabilistic Spiking Neural
+               Networks via Weight-Discretized Quotient Abstractions},
+  booktitle = {Proc. International Conference on Artificial Neural Networks (ICANN)},
+  year      = {2026},
+  note      = {The CogSpike workbench},
+}
+
+% ── FCS and formal verification of SNNs ─────────────────────────────────────
+
+@article{DeMaria2020,
+  author  = {De Maria, Elisabetta and Bahrami, Abdorrahim and L'Yvonnet, Thibaud
+             and Felty, Amy and Gaff{\'e}, Daniel and Ressouche, Annie and
+             Grammont, Franck},
+  title   = {On the Use of Formal Methods to Model and Verify Neuronal Archetypes},
+  journal = {Frontiers of Computer Science},
+  volume  = {16},
+  number  = {3},
+  pages   = {163404},
+  year    = {2020},
+  doi     = {10.1007/s11704-020-0029-6},
+}
+
+@article{naco20,
+  author  = {De Maria, Elisabetta and Di Giusto, Cinzia and Laversa, Laetitia},
+  title   = {Spiking Neural Networks Modelled as Timed Automata: With Parameter
+             Learning},
+  journal = {Natural Computing},
+  volume  = {19},
+  number  = {1},
+  pages   = {135--155},
+  year    = {2020},
+  doi     = {10.1007/s11047-019-09727-9},
+}
+
+@inproceedings{yao2025probabilistic,
+  author    = {Yao, Zhen and De Maria, Elisabetta and de Simone, Robert},
+  title     = {Probabilistic Spiking Neural Networks: Formal Verification and
+               Simulation},
+  booktitle = {Unconventional Computation and Natural Computation (UCNC)},
+  series    = {Lecture Notes in Computer Science},
+  pages     = {100--114},
+  publisher = {Springer},
+  year      = {2025},
+  doi       = {10.1007/978-3-032-15641-9_8},
+}
+
+@inproceedings{PRISM2011,
+  author    = {Kwiatkowska, Marta and Norman, Gethin and Parker, David},
+  title     = {{PRISM} 4.0: Verification of Probabilistic Real-Time Systems},
+  booktitle = {Computer Aided Verification (CAV)},
+  pages     = {585--591},
+  year      = {2011},
+  doi       = {10.1007/978-3-642-22110-1_47},
+}
+
+@book{BaierKatoen2008,
+  author    = {Baier, Christel and Katoen, Joost-Pieter},
+  title     = {Principles of Model Checking},
+  publisher = {MIT Press},
+  year      = {2008},
+}
+
+% ── Spiking neuron models ───────────────────────────────────────────────────
+
+@article{maass1997networks,
+  author  = {Maass, Wolfgang},
+  title   = {Networks of Spiking Neurons: The Third Generation of Neural
+             Network Models},
+  journal = {Neural Networks},
+  volume  = {10},
+  number  = {9},
+  pages   = {1659--1671},
+  year    = {1997},
+}
+
+@article{HodgkinHuxley1952,
+  author  = {Hodgkin, Alan L. and Huxley, Andrew F.},
+  title   = {A Quantitative Description of Membrane Current and Its Application
+             to Conduction and Excitation in Nerve},
+  journal = {The Journal of Physiology},
+  volume  = {117},
+  number  = {4},
+  pages   = {500--544},
+  year    = {1952},
+  doi     = {10.1113/jphysiol.1952.sp004764},
+}
+
+@article{izhikevich2003simple,
+  author  = {Izhikevich, Eugene M.},
+  title   = {Simple Model of Spiking Neurons},
+  journal = {IEEE Transactions on Neural Networks},
+  volume  = {14},
+  number  = {6},
+  pages   = {1569--1572},
+  year    = {2003},
+}
+
+@book{GerstnerKistler2002,
+  author    = {Gerstner, Wulfram and Kistler, Werner M.},
+  title     = {Spiking Neuron Models: Single Neurons, Populations, Plasticity},
+  publisher = {Cambridge University Press},
+  year      = {2002},
+}
+
+@book{DayanAbbott2001,
+  author    = {Dayan, Peter and Abbott, L. F.},
+  title     = {Theoretical Neuroscience: Computational and Mathematical
+               Modeling of Neural Systems},
+  publisher = {MIT Press},
+  year      = {2001},
+}
+
+% ── Mean-field, rate equations, and closed-form neuron theory ───────────────
+
+@article{WilsonCowan1972,
+  author  = {Wilson, Hugh R. and Cowan, Jack D.},
+  title   = {Excitatory and Inhibitory Interactions in Localized Populations
+             of Model Neurons},
+  journal = {Biophysical Journal},
+  volume  = {12},
+  number  = {1},
+  pages   = {1--24},
+  year    = {1972},
+  doi     = {10.1016/S0006-3495(72)86068-5},
+}
+
+@article{Amari1977,
+  author  = {Amari, Shun-ichi},
+  title   = {Dynamics of Pattern Formation in Lateral-Inhibition Type Neural
+             Fields},
+  journal = {Biological Cybernetics},
+  volume  = {27},
+  number  = {2},
+  pages   = {77--87},
+  year    = {1977},
+  doi     = {10.1007/BF00337259},
+}
+
+@article{Siegert1951,
+  author  = {Siegert, A. J. F.},
+  title   = {On the First Passage Time Probability Problem},
+  journal = {Physical Review},
+  volume  = {81},
+  number  = {4},
+  pages   = {617--623},
+  year    = {1951},
+  doi     = {10.1103/PhysRev.81.617},
+}
+
+@article{Brunel2000,
+  author  = {Brunel, Nicolas},
+  title   = {Dynamics of Sparsely Connected Networks of Excitatory and
+             Inhibitory Spiking Neurons},
+  journal = {Journal of Computational Neuroscience},
+  volume  = {8},
+  number  = {3},
+  pages   = {183--208},
+  year    = {2000},
+  doi     = {10.1023/A:1008925309027},
+}
+
+@article{BrunelHakim1999,
+  author  = {Brunel, Nicolas and Hakim, Vincent},
+  title   = {Fast Global Oscillations in Networks of Integrate-and-Fire
+             Neurons with Low Firing Rates},
+  journal = {Neural Computation},
+  volume  = {11},
+  number  = {7},
+  pages   = {1621--1671},
+  year    = {1999},
+  doi     = {10.1162/089976699300016179},
+}
+
+@article{Richardson2007,
+  author  = {Richardson, Magnus J. E.},
+  title   = {Firing-Rate Response of Linear and Nonlinear Integrate-and-Fire
+             Neurons to Modulated Current-Based and Conductance-Based Synaptic
+             Drive},
+  journal = {Physical Review E},
+  volume  = {76},
+  number  = {2},
+  pages   = {021919},
+  year    = {2007},
+  doi     = {10.1103/PhysRevE.76.021919},
+}
+
+@article{NaudGerstner2012,
+  author  = {Naud, Richard and Gerstner, Wulfram},
+  title   = {Coding and Decoding with Adapting Neurons: A Population Approach
+             to the Peri-Stimulus Time Histogram},
+  journal = {PLoS Computational Biology},
+  volume  = {8},
+  number  = {10},
+  pages   = {e1002711},
+  year    = {2012},
+  doi     = {10.1371/journal.pcbi.1002711},
+}
+
+@article{Schwalger2017,
+  author  = {Schwalger, Tilo and Deger, Moritz and Gerstner, Wulfram},
+  title   = {Towards a Theory of Cortical Columns: From Spiking Neurons to
+             Interacting Neural Populations of Finite Size},
+  journal = {PLoS Computational Biology},
+  volume  = {13},
+  number  = {4},
+  pages   = {e1005507},
+  year    = {2017},
+  doi     = {10.1371/journal.pcbi.1005507},
+}
+
+@book{ErmentroutTerman2010,
+  author    = {Ermentrout, G. Bard and Terman, David H.},
+  title     = {Mathematical Foundations of Neuroscience},
+  series    = {Interdisciplinary Applied Mathematics},
+  volume    = {35},
+  publisher = {Springer},
+  year      = {2010},
+  doi       = {10.1007/978-0-387-87708-2},
+}
+
+% ── Dynamical systems and control ───────────────────────────────────────────
+
+@book{Strogatz2014,
+  author    = {Strogatz, Steven H.},
+  title     = {Nonlinear Dynamics and Chaos},
+  edition   = {2},
+  publisher = {Westview Press},
+  year      = {2014},
+}
+
+@book{Kuznetsov2004,
+  author    = {Kuznetsov, Yuri A.},
+  title     = {Elements of Applied Bifurcation Theory},
+  edition   = {3},
+  series    = {Applied Mathematical Sciences},
+  volume    = {112},
+  publisher = {Springer},
+  year      = {2004},
+  doi       = {10.1007/978-1-4757-3978-7},
+}
+
+@book{MarsdenMcCracken1976,
+  author    = {Marsden, Jerrold E. and McCracken, Marjorie},
+  title     = {The Hopf Bifurcation and Its Applications},
+  series    = {Applied Mathematical Sciences},
+  volume    = {19},
+  publisher = {Springer},
+  year      = {1976},
+  doi       = {10.1007/978-1-4612-6374-6},
+}
+
+@book{KhalilNonlinear,
+  author    = {Khalil, Hassan K.},
+  title     = {Nonlinear Systems},
+  edition   = {3},
+  publisher = {Prentice Hall},
+  year      = {2002},
+}
+
+% ── Internal CogSpike DEQ research notes (the seven threads) ─────────────────
+
+@misc{archetypes,
+  author = {Zandian, Nikan},
+  title  = {Spectral Cartography of LI\&F Archetype Parameter Spaces},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/archetypes/},
+}
+
+@misc{population,
+  author = {Zandian, Nikan},
+  title  = {Population-Level Spectral Analysis of LI\&F Neuronal Archetypes (v2)},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/population/},
+}
+
+@misc{closed_form,
+  author = {Zandian, Nikan},
+  title  = {Closed-Form Finite-Population Analysis of LI\&F Neuronal Archetypes},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/closed\_form/},
+}
+
+@misc{closed_form_wta,
+  author = {Zandian, Nikan},
+  title  = {Closed-Form Rate-Equation Reading of FCS Property 7
+            (2-Neuron Winner-Take-All)},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/closed\_form\_wta/},
+}
+
+@misc{closed_form_wta_multi,
+  author = {Zandian, Nikan},
+  title  = {Closed-Form Reproduction of FCS Property 7 at $N > 2$},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/closed\_form\_wta\_multi/},
+}
+
+@misc{closed_form_neg_loop,
+  author = {Zandian, Nikan},
+  title  = {Closed-Form Rate-Equation Reading of FCS Property 5
+            (2-Neuron Negative Loop)},
+  year   = {2026},
+  note   = {CogSpike DEQ research note, deq/closed\_form\_neg\_loop/},
+}
+
+@misc{synthesis,
+  author = {Zandian, Nikan},
+  title  = {Continuous and Closed-Form Methods for LI\&F Archetype Analysis:
+            A Methodology Compendium},
+  year   = {2026},
+  note   = {CogSpike DEQ synthesis, deq/final/synthesis.pdf},
+}

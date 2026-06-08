@@ -16,6 +16,15 @@ target_wasm
 paper/*.pdf
 research/**/*.pdf
 
+# LaTeX build artifacts (IEEE paper — keep .tex/.bib/.cls/.bst/figs, drop build output)
+paper/ieee/*.pdf
+paper/ieee/*.aux
+paper/ieee/*.bbl
+paper/ieee/*.blg
+paper/ieee/*.log
+paper/ieee/*.out
+paper/ieee/missfont.log
+
 # Internal notes (not for version control)
 notes/
 
