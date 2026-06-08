@@ -52,8 +52,8 @@
     isomorphic tool chain. The discretization is accompanied by formal
     correctness guarantees: a Threshold Preservation theorem (completeness)
     ensures that no fireable configurations are lost, and an Asymptotic
-    Silence theorem (soundness) guarantees that no spurious spikes are
-    introduced. A topology-dependent scaling analysis shows that the state
+    Silence theorem (soundness) guarantees that spurious firing cannot
+    persist. A topology-dependent scaling analysis shows that the state
     space reduction compounds exponentially---approximately 17$times$ per
     neuron for discretization parameter $W = 3$---enabling verification of
     networks that are otherwise intractable, as confirmed empirically across
@@ -132,8 +132,8 @@ Concretely, the contributions are fourfold:
 
 + *Formal correctness proofs*: a _Threshold Preservation_ theorem
   (completeness) and an _Asymptotic Silence_ theorem (soundness) guaranteeing
-  that the discretization neither loses fireable configurations nor introduces
-  spurious spikes (@sec-proofs).
+  that the discretization neither loses fireable configurations nor sustains
+  spurious firing (@sec-proofs).
 
 + A *topology-dependent state space analysis* with closed-form formulas for
   DTMC size as a function of network structure, validated empirically across
@@ -333,8 +333,8 @@ the fan-in.
 
 The use of the ceiling function $op("ceil")$ (rather than rounding) ensures $T_d >= T dot.c W \/ w_"max"$,
 so the discretized neuron is _at least as hard_ to fire as the original. This
-conservative calibration prevents false-positive firings and is essential for
-the Asymptotic Silence guarantee (Theorem~2).
+conservative calibration underlies the Asymptotic Silence guarantee
+(Theorem~2).
 
 == Multiplicative Leak <sec-leak>
 
@@ -400,6 +400,18 @@ properties.
   never met. At $p = 0$, the threshold level is $L = 0$, which maps to firing
   probability zero, ensuring permanent silence.
 ]
+
+*Remark (single-step soundness).* The asymptotic statement is the strongest
+soundness guarantee compatible with compression. Because $delta_W$ rounds each
+weight by up to $1\/2$, the discretized contribution can exceed its scaled
+original by as much as $m\/2$, so an isolated subthreshold step is not
+guaranteed silent once the fan-in $m >= 2$ (e.g. $w_1 = w_2 = 50$, $T = 120$,
+$W = 3$: the original can never fire, yet $delta_3(50) = 2$ yields a discretized
+sum $4 = T_d$). Restoring exact single-step soundness would require
+$W > w_"max" dot.c m \/ 2$, which negates the state-space reduction; the
+leak-driven absorbing silence above therefore secures soundness at the level of
+the limit behaviour that the verified PCTL properties---e.g.
+$bold(F) bold(G)(y_n = 0)$ for losing neurons---actually require.
 
 === Biological Property Preservation <sec-bio-preservation>
 
@@ -593,7 +605,7 @@ demanded by model checking. This paper presented a weight-discretized
 quotient model abstraction that resolves this tension.
 The discretization function $delta_W$ maps continuous synaptic weights to a
 compact integer range while preserving threshold feasibility (Theorem~1) and
-preventing spurious spikes (Theorem~2). The core biological properties of LIF
+preventing spurious sustained firing (Theorem~2). The core biological properties of LIF
 neurons---tonic spiking, integrator behaviour, and excitability @naco20 ---are
 maintained under the multiplicative-leak update $p'_n = floor(r dot.c p_n) + C_n$.
 These guarantees are delivered through CogSpike, the unified
