@@ -1,0 +1,71 @@
+// =====================================================================
+// Property templates — Spiking Entropy Coder archetype
+// Companion to research/compression/spiking_entropy_coder.typ
+//
+// Two classes, matching the note's §6/§7 split:
+//   (A) STRUCTURAL / SAFETY     — hold for ANY predictor q (correctness)
+//   (B) QUANTITATIVE / OPTIMALITY — predictor-dependent (the thing learning
+//                                   improves; near-entropy cost)
+//
+// Labels assumed (instantiate against a concrete model, e.g. a DTMC over the
+// momentum-rover source coupled to a 4-neuron temporal-WTA readout, in the
+// style of research/contralateral-inhibition/contra_inhib_fixed.prism):
+//   "win_i"   : readout neuron i fired first this symbol window  (i in 1..4)
+//   "winner"  : sum over i of win_i  (number of winners this window)
+//   "decoded" : symbol id elected by the WTA
+//   "emitted" : true source symbol x_t for this window
+//   reward "time" : per-window latency  -lambda*log2 q(x_t | c_t)
+//                   (continuous; in a pure DTMC use a spike-COUNT proxy and
+//                    accept the timing-resolution penalty — see note §7 check)
+// =====================================================================
+
+
+// ── (A) STRUCTURAL / SAFETY — independent of predictor quality ───────
+
+// A1: Mutual exclusion — at most one winner per symbol (unambiguous decode).
+//     A bad predictor may be SLOW but never AMBIGUOUS.
+P>=1 [ G (winner <= 1) ]
+
+// A2: Liveness — every symbol window eventually elects a winner
+//     (decoding terminates; the code is complete / decodable).
+P>=1 [ G F (winner = 1) ]
+
+// A3: Losslessness — the decoded symbol always equals the emitted one.
+//     This is the safety core: decode(encode(x)) = x for all streams.
+P>=1 [ G (decoded = emitted) ]
+
+// A4: Prefix-freeness (self-clocking) — a winner resets the layer before the
+//     next window's integration begins; no two windows' spikes interleave.
+//     Structural guard-level invariant; stated as a reachability sanity check.
+P>=1 [ G (winner = 1 => X (winner = 0 U "new_window")) ]
+
+
+// ── (B) QUANTITATIVE / OPTIMALITY — predictor-dependent ──────────────
+
+// B1: Expected per-symbol cost (steady state). Compare against the closed-form
+//     entropy-rate floor H_rate = 0.9782 bits/symbol (momentum rover, s=0.7,
+//     from validate.py). Optimality target:  R["time"] <= lambda*(H_rate + eps).
+R{"time"}=? [ S ]
+
+// B2: Expected cost to absorb a length-N stream (transient form), for finite
+//     verification against H_rate*N.  (Set up an absorbing "done" state.)
+R{"time"}=? [ F "done" ]
+
+// B3: Stupidity tax made checkable. Run B1 for the LEARNED predictor q and for
+//     the memoryless baseline q=pi; the difference is lambda*D_KL(p||q_pi).
+//     For the rover: memoryless cost - floor = 0.7718 bits/symbol (validate.py).
+//     A learning step is "an improvement" iff it lowers R{"time"}=?[S].
+
+// B4: Sanity bounds (Shannon source-coding theorem, physical form):
+//     floor  <=  R{"time"}=?[S]/lambda  <  floor + (timing-resolution penalty).
+//     In continuous time the classic "+1 bit" upper slack collapses (note Thm 2);
+//     the residual slack is the analog timing penalty (note §4 honesty check).
+
+
+// ── Notes ────────────────────────────────────────────────────────────
+// * A1+A2 together are the WTA "always eventually EXACTLY one winner" pair the
+//   contralateral-inhibition study already proves — reused verbatim here as the
+//   coder's correctness backbone.
+// * The clean separation A (predictor-free) vs B (predictor-dependent) is the
+//   formal-methods payoff: correctness is certified once, optimality is the
+//   quantity training drives down. They never trade off.
