@@ -522,7 +522,7 @@ Throughout this section, _Fast_ and _Full_ denote precise-model refractory
 settings (no refractory vs. ARP/RRP) at the full $k = 10$ resolution, as
 distinct from the reduced-level GUI presets of @sec-cogspike.
 
-#theorem[
+#proposition[
   *(State Space Product).* The theoretical state space is the Cartesian product
   of all module state spaces:
   $ |S_"theory"| = (T_"max"+1) dot.c 2^(|V_"in"|) dot.c product_(n in V_"proc") f_n (C) dot.c 2^(|E_"int"|) $
@@ -534,7 +534,7 @@ per-neuron factor is $f_n = 2 dot.c 121 = 242$ (fast precise), dropping to
 $f_n = 2 dot.c 7 = 14$ (discretized $W = 3$). The per-neuron reduction factor
 is $242 \/ 14 approx 17.3 times$.
 
-#theorem[
+#proposition[
   *(Exponential State Space Reduction).* For a chain of $N$ neurons, the
   state space ratio between precise and discretized models compounds
   exponentially:
