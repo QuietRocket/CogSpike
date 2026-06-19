@@ -1,0 +1,16 @@
+[project]
+name = "nengo-spiking-compression"
+version = "0.1.0"
+description = "Nengo experiments embodying the 'Spikes as Bits, Learned' spiking entropy coder (research/compression)"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "nengo>=3.2",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+
+# Treat this as an environment, not an installable package: uv manages deps only.
+[tool.uv]
+package = false
