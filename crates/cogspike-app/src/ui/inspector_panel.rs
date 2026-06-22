@@ -8,6 +8,7 @@ pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         Mode::Design => design_inspector(app, ui),
         Mode::Simulate => simulate_inspector(app, ui),
         Mode::Verify => verify_inspector(app, ui),
+        Mode::Gym => crate::ui::gym::gym_inspector(app, ui),
     }
 }
 

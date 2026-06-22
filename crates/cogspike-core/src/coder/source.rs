@@ -3,6 +3,7 @@
 //! `P_ij = s*1[i=j] + (1-s)*pi_j` -- a convex blend of the identity (pure
 //! momentum) and `1 pi^T` (pure memorylessness). See `research/compression/validate.py`.
 
+use rand::Rng;
 use rand::SeedableRng as _;
 use rand::distributions::{Distribution as _, WeightedIndex};
 use rand::rngs::StdRng;
@@ -106,5 +107,20 @@ impl RoverSource {
     #[must_use]
     pub fn sample(&self, n: usize) -> Vec<usize> {
         sample_stream(&self.p, &self.pi, n, self.seed)
+    }
+
+    /// Sample an initial symbol from the stationary distribution `pi` (online use).
+    pub fn sample_initial(&self, rng: &mut impl Rng) -> usize {
+        WeightedIndex::new(&self.pi)
+            .expect("pi must be a valid distribution")
+            .sample(rng)
+    }
+
+    /// Sample the next symbol given the previous one (online, single-step).
+    pub fn sample_next(&self, prev: usize, rng: &mut impl Rng) -> usize {
+        let row = self.p.get(prev).map_or(self.pi.as_slice(), Vec::as_slice);
+        WeightedIndex::new(row)
+            .expect("each P row must be a valid distribution")
+            .sample(rng)
     }
 }

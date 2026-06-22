@@ -1,6 +1,9 @@
 //! The rover environment: emits the momentum-rover stream and scores the agent's
 //! per-symbol prediction by surprisal.
 
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
+
 use crate::coder::{LAMBDA, RoverSource, one_hot};
 
 use super::{Env, Prediction, StepOut};
@@ -72,5 +75,74 @@ impl Env for RoverEnv {
 
     fn n(&self) -> usize {
         self.source.n()
+    }
+}
+
+/// An unbounded, online variant of the rover for interactive (frame-stepped) use:
+/// it samples one symbol at a time from the live transition matrix, never `done`,
+/// and exposes the current context so the UI can step it indefinitely.
+#[derive(Clone, Debug)]
+pub struct OnlineRover {
+    /// The underlying Markov source (its `P` can be retuned live via [`Self::set_s`]).
+    pub source: RoverSource,
+    /// Time-per-bit constant for the latency/reward.
+    pub lambda: f64,
+    rng: StdRng,
+    prev: usize,
+}
+
+impl OnlineRover {
+    /// Construct from a source, `lambda`, and seed (samples the initial symbol).
+    #[must_use]
+    pub fn new(source: RoverSource, lambda: f64, seed: u64) -> Self {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let prev = source.sample_initial(&mut rng);
+        Self {
+            source,
+            lambda,
+            rng,
+            prev,
+        }
+    }
+
+    /// The paper's rover, seeded.
+    #[must_use]
+    pub fn paper(seed: u64) -> Self {
+        Self::new(RoverSource::paper(), LAMBDA, seed)
+    }
+
+    /// Alphabet size.
+    #[must_use]
+    pub fn n(&self) -> usize {
+        self.source.n()
+    }
+
+    /// The current context observation (one-hot of the previous symbol).
+    #[must_use]
+    pub fn context(&self) -> Vec<f64> {
+        one_hot(self.prev, self.n())
+    }
+
+    /// Retune the source stickiness `s` live (rebuilds the transition matrix).
+    pub fn set_s(&mut self, s: f64) {
+        self.source.set_s(s);
+    }
+
+    /// Emit the next symbol and score the agent's `prediction` by surprisal.
+    pub fn step(&mut self, prediction: &Prediction) -> StepOut {
+        let emitted = self.source.sample_next(self.prev, &mut self.rng);
+        let q_emit = prediction.q.get(emitted).copied().unwrap_or(0.0);
+        let bits = -q_emit.log2();
+        let reward = -self.lambda * bits;
+        let correct = prediction.decoded == Some(emitted);
+        self.prev = emitted;
+        StepOut {
+            obs: one_hot(emitted, self.n()),
+            reward,
+            bits,
+            correct,
+            emitted,
+            done: false,
+        }
     }
 }

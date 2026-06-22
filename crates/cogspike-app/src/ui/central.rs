@@ -24,6 +24,7 @@ pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Contex
         Mode::Design => design_view(app, ui, ctx),
         Mode::Simulate => simulate_view(app, ui, ctx),
         Mode::Verify => verify_view(app, ui, ctx),
+        Mode::Gym => crate::ui::gym::gym_view(app, ui, ctx),
     }
 }
 

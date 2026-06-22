@@ -41,6 +41,9 @@ label "error_state" = s=2;
 #[serde(default)]
 pub struct TemplateApp {
     pub(crate) mode: Mode,
+    /// Live state of the rover gym (not persisted).
+    #[serde(skip)]
+    pub(crate) gym: crate::ui::gym::GymState,
     pub(crate) backend: BackendChoice,
     pub(crate) selection: Selection,
     pub(crate) networks: Vec<ProjectNetwork>,
@@ -73,16 +76,18 @@ pub enum Mode {
     Design,
     Simulate,
     Verify,
+    Gym,
 }
 
 impl Mode {
-    pub const ALL: [Self; 3] = [Self::Design, Self::Simulate, Self::Verify];
+    pub const ALL: [Self; 4] = [Self::Design, Self::Simulate, Self::Verify, Self::Gym];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Design => "Design",
             Self::Simulate => "Simulate",
             Self::Verify => "Verify",
+            Self::Gym => "Gym",
         }
     }
 }
@@ -471,6 +476,7 @@ impl Default for TemplateApp {
 
         Self {
             mode: Mode::Design,
+            gym: crate::ui::gym::GymState::default(),
             backend,
             selection: Selection {
                 network: Some(0),
