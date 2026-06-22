@@ -61,7 +61,7 @@ pub fn dvs_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
         );
         ui.label(
             RichText::new(format!(
-                "compression   ({} raw events  →  {} residual spikes)",
+                "compression   ({} raw events  ->  {} residual spikes)",
                 app.dvs.scene.raw_total, app.dvs.scene.resid_total
             ))
             .weak(),
@@ -73,13 +73,13 @@ pub fn dvs_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
     brightness_strip(ui, app.dvs.scene.current_brightness());
     ui.add_space(10.0);
 
-    ui.label(RichText::new("RAW event stream — every edge, frame by frame →").strong());
+    ui.label(RichText::new("RAW event stream — every edge, frame by frame").strong());
     raster(ui, &app.dvs.scene.frames, false);
     ui.add_space(10.0);
 
     ui.label(
         RichText::new(format!(
-            "RESIDUAL after predictive subtraction — {ratio:.1}× sparser →"
+            "RESIDUAL after predictive subtraction — {ratio:.1}× sparser"
         ))
         .strong()
         .color(GREEN),
@@ -211,10 +211,18 @@ fn brightness_strip(ui: &mut egui::Ui, b: &[u8]) {
 
 fn legend(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("■").color(ON_COLOR));
-        ui.label(RichText::new("ON (bar arrives)").small().weak());
-        ui.add_space(12.0);
-        ui.label(RichText::new("■").color(OFF_COLOR));
-        ui.label(RichText::new("OFF (bar leaves)").small().weak());
+        ui.label(
+            RichText::new("ON = bar arrives")
+                .small()
+                .strong()
+                .color(ON_COLOR),
+        );
+        ui.add_space(16.0);
+        ui.label(
+            RichText::new("OFF = bar leaves")
+                .small()
+                .strong()
+                .color(OFF_COLOR),
+        );
     });
 }
