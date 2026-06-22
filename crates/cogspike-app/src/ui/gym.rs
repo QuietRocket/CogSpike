@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 
 use cog_spike::coder::{self, LABELS, entropy_bits, entropy_rate, one_hot};
+use cog_spike::gym::scenario::{self, Scenario};
 use cog_spike::gym::{Agent as _, DeltaAgent, OnlineRover};
 use cog_spike::substrate::{Parity, Substrate as _};
 use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
@@ -18,11 +19,13 @@ use crate::app::TemplateApp;
 const WINDOW: usize = 4000; // running-window size for the live stats
 const MAX_CURVE: usize = 2000; // max points kept per plot line
 
-/// All live state of the rover gym (held `#[serde(skip)]` on the app).
+/// All live state of the playground gym (held `#[serde(skip)]` on the app).
 pub struct GymState {
+    /// The currently selected source scenario.
+    pub scenario: Scenario,
     /// The predict-and-learn agent.
     pub agent: DeltaAgent,
-    /// The online (unbounded) rover environment.
+    /// The online (unbounded) source environment.
     pub env: OnlineRover,
     /// Whether the simulation is advancing each frame.
     pub running: bool,
@@ -44,15 +47,16 @@ pub struct GymState {
 
 impl Default for GymState {
     fn default() -> Self {
-        Self::new(7)
+        Self::new(Scenario::MarkovRover, 7)
     }
 }
 
 impl GymState {
-    fn new(seed: u64) -> Self {
+    fn new(sc: Scenario, seed: u64) -> Self {
         Self {
-            agent: DeltaAgent::paper(4),
-            env: OnlineRover::paper(seed),
+            scenario: sc,
+            agent: DeltaAgent::paper(scenario::N),
+            env: OnlineRover::new(sc.source(seed), coder::LAMBDA, seed),
             running: false,
             steps_per_frame: 2000,
             stickiness: coder::S,
@@ -67,19 +71,30 @@ impl GymState {
         }
     }
 
-    /// Reset agent + env + history, keeping the chosen seed, stickiness, and pace.
+    /// Reset agent + env + history, keeping the scenario, seed, stickiness, and pace.
     fn reset(&mut self) {
-        let (s, seed, spf, running) = (
+        let (sc, s, seed, spf, running) = (
+            self.scenario,
             self.stickiness,
             self.seed,
             self.steps_per_frame,
             self.running,
         );
-        *self = Self::new(seed);
+        *self = Self::new(sc, seed);
         self.steps_per_frame = spf;
         self.stickiness = s;
         self.running = running;
-        self.env.set_s(s);
+        if sc.has_stickiness() {
+            self.env.set_s(s);
+        }
+    }
+
+    /// Switch to a different source scenario (fresh agent + history).
+    fn set_scenario(&mut self, sc: Scenario) {
+        let (seed, spf, running) = (self.seed, self.steps_per_frame, self.running);
+        *self = Self::new(sc, seed);
+        self.steps_per_frame = spf;
+        self.running = running;
     }
 
     fn micro_step(&mut self) {
@@ -175,13 +190,19 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
         ui.ctx().request_repaint();
     }
 
+    let sc = app.gym.scenario;
     ui.horizontal(|ui| {
-        ui.heading("Rover entropy coder — money plot");
+        ui.heading("Compression playground");
         ui.label(
             egui::RichText::new("first-spike latency = surprisal; the delta rule learns q -> P")
                 .weak(),
         );
     });
+    ui.label(
+        egui::RichText::new(format!("Scenario: {} — {}", sc.label(), sc.tagline()))
+            .italics()
+            .color(egui::Color32::from_rgb(160, 190, 230)),
+    );
     ui.separator();
 
     let floor = app.gym.floor();
@@ -242,10 +263,24 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
 
 /// The right-panel inspector: run controls, parameters, live stats, parity badge.
 pub fn gym_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
-    ui.heading("Rover Gym");
+    ui.heading("Playground");
     ui.label(egui::RichText::new("idealized latency entropy coder").weak());
     ui.separator();
 
+    ui.label(egui::RichText::new("Source scenario").strong());
+    let mut sc = app.gym.scenario;
+    egui::ComboBox::from_id_salt("scenario_select")
+        .selected_text(sc.label())
+        .show_ui(ui, |ui| {
+            for option in Scenario::ALL {
+                ui.selectable_value(&mut sc, option, option.label());
+            }
+        });
+    if sc != app.gym.scenario {
+        app.gym.set_scenario(sc);
+    }
+
+    ui.separator();
     ui.horizontal(|ui| {
         let run_label = if app.gym.running {
             "⏸ Pause"
@@ -262,13 +297,15 @@ pub fn gym_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
     ui.separator();
     ui.label(egui::RichText::new("Parameters").strong());
-    let mut s = app.gym.stickiness;
-    if ui
-        .add(egui::Slider::new(&mut s, 0.0..=0.95).text("stickiness s"))
-        .changed()
-    {
-        app.gym.stickiness = s;
-        app.gym.env.set_s(s);
+    if app.gym.scenario.has_stickiness() {
+        let mut s = app.gym.stickiness;
+        if ui
+            .add(egui::Slider::new(&mut s, 0.0..=0.95).text("stickiness s"))
+            .changed()
+        {
+            app.gym.stickiness = s;
+            app.gym.env.set_s(s);
+        }
     }
     ui.add(
         egui::Slider::new(&mut app.gym.steps_per_frame, 100..=20_000)

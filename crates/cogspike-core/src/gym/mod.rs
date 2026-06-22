@@ -8,9 +8,11 @@
 
 pub mod agent;
 pub mod rover;
+pub mod scenario;
 
 pub use agent::DeltaAgent;
 pub use rover::{OnlineRover, RoverEnv};
+pub use scenario::Scenario;
 
 use crate::coder::{cross_entropy_rate, one_hot};
 
