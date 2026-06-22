@@ -32,6 +32,7 @@ pub fn central_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Contex
         Mode::Verify => verify_view(app, ui, ctx),
         Mode::Gym => crate::ui::gym::gym_view(app, ui, ctx),
         Mode::Events => crate::ui::dvs::dvs_view(app, ui, ctx),
+        Mode::Spikes => crate::ui::spikes::spikes_view(app, ui, ctx),
     }
 }
 

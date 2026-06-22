@@ -88,6 +88,29 @@ service worker had cached the prior wasm — a normal reload shows stale glyphs)
 
 ---
 
+## P5 — spike-latency view (`Mode::Spikes`) · VERIFIED
+
+**Claim.** Makes the paper's thesis literal: each symbol is a LIF neuron whose calibration
+drive `J = theta/(1 - q^alpha)` makes it fire at `t*(q) = -lambda log2 q`. The most-expected
+symbol is driven hardest, crosses threshold FIRST, and the wait IS the code length. The
+learner runs fast in the background (batched symbols/frame); the four ramps start bunched
+(a tie = log2 4 = 2 bits) and separate as `q` sharpens.
+
+**Observed in-browser (Spike latency mode).** After convergence on the rover: the expected
+move **U fires at 3.8 ms = 0.19 bits** (q = 0.876), while the surprising moves wait ~86–98 ms
+= 4.3–4.9 bits (q ≈ 0.03–0.05). "fires first · actual = U"; bits/symbol 0.959, accuracy 0.814.
+The per-symbol table lists each q, its latency (ms) and bits, with the first-spike (decoded)
+and actual symbols tagged. A *Step* button advances one symbol for inspection; a *learn speed*
+slider controls background convergence.
+
+**Re-verify.** In-browser: Spike latency mode → watch the U ramp pull ahead; the surviving
+ramps asymptote just above threshold (very late / "never" = high surprise). Uses the
+`latency.rs` LIF model (`calibration_drive`, `nengo_first_spike_time`) — the faithful latency
+coder, not the discretized PRISM-oriented `run_simulation` (whose dynamics are a different
+model). No PRISM (formal proof dropped from this run's critical path per the user's steer).
+
+---
+
 ## Parity-fixture note (honest scope)
 
 P2/P3 are validated by **deterministic behavioral unit tests** against the closed-form /

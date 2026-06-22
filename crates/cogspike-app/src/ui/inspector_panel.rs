@@ -15,6 +15,7 @@ pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         Mode::Verify => verify_inspector(app, ui),
         Mode::Gym => crate::ui::gym::gym_inspector(app, ui),
         Mode::Events => crate::ui::dvs::dvs_inspector(app, ui),
+        Mode::Spikes => crate::ui::spikes::spikes_inspector(app, ui),
     }
 }
 

@@ -47,6 +47,9 @@ pub struct TemplateApp {
     /// Live state of the event-camera (DVS) view (not persisted).
     #[serde(skip)]
     pub(crate) dvs: crate::ui::dvs::DvsState,
+    /// Live state of the spike-latency view (not persisted).
+    #[serde(skip)]
+    pub(crate) spikes: crate::ui::spikes::SpikeState,
     pub(crate) backend: BackendChoice,
     pub(crate) selection: Selection,
     pub(crate) networks: Vec<ProjectNetwork>,
@@ -81,15 +84,17 @@ pub enum Mode {
     Verify,
     Gym,
     Events,
+    Spikes,
 }
 
 impl Mode {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Design,
         Self::Simulate,
         Self::Verify,
         Self::Gym,
         Self::Events,
+        Self::Spikes,
     ];
 
     pub fn label(self) -> &'static str {
@@ -99,6 +104,7 @@ impl Mode {
             Self::Verify => "Verify",
             Self::Gym => "Gym",
             Self::Events => "Event camera",
+            Self::Spikes => "Spike latency",
         }
     }
 }
@@ -489,6 +495,7 @@ impl Default for TemplateApp {
             mode: Mode::Design,
             gym: crate::ui::gym::GymState::default(),
             dvs: crate::ui::dvs::DvsState::default(),
+            spikes: crate::ui::spikes::SpikeState::default(),
             backend,
             selection: Selection {
                 network: Some(0),
