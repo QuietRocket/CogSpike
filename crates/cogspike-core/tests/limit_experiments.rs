@@ -189,7 +189,11 @@ fn presets() -> Vec<ConfigPreset> {
 
 #[test]
 fn generate_all_experiment_models() {
-    let out_dir = std::path::Path::new("research/limits/experiments");
+    // Anchor at the repo root (tests run with cwd = crates/cogspike-core).
+    let out_dir = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../research/limits/experiments"
+    ));
     fs::create_dir_all(out_dir).expect("Failed to create experiments directory");
 
     let mut summary = String::from(

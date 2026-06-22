@@ -89,7 +89,9 @@ pub fn check_feasibility(excitatory_weights: &[i32], t_d: i32, retention_rate: f
     let leak_factor = 1.0 - retention_rate;
     if leak_factor <= 1e-9 {
         // r ≈ 1.0, no leak → always accumulates (multi-step if excitation < T_d)
-        return Feasibility::MultiStep { min_steps: ((t_d as f64) / max_excitation as f64).ceil() as i32 };
+        return Feasibility::MultiStep {
+            min_steps: ((t_d as f64) / max_excitation as f64).ceil() as i32,
+        };
     }
 
     let p_ss = max_excitation as f64 / leak_factor;

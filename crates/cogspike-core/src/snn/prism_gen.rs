@@ -14,11 +14,36 @@ use std::fmt::Write as _;
 
 /// PRISM language reserved words that cannot be used as identifiers.
 const PRISM_RESERVED: &[&str] = &[
-    "module", "endmodule", "dtmc", "ctmc", "mdp", "const", "formula",
-    "label", "rewards", "endrewards", "init", "endinit", "global",
-    "true", "false", "int", "double", "bool", "min", "max",
-    "filter", "func", "ceil", "floor", "log", "mod", "pow", "sqrt",
-    "rate", "prob",
+    "module",
+    "endmodule",
+    "dtmc",
+    "ctmc",
+    "mdp",
+    "const",
+    "formula",
+    "label",
+    "rewards",
+    "endrewards",
+    "init",
+    "endinit",
+    "global",
+    "true",
+    "false",
+    "int",
+    "double",
+    "bool",
+    "min",
+    "max",
+    "filter",
+    "func",
+    "ceil",
+    "floor",
+    "log",
+    "mod",
+    "pow",
+    "sqrt",
+    "rate",
+    "prob",
 ];
 
 /// Maps `NodeId` → PRISM-safe identifier derived from the node's GUI label.
@@ -33,7 +58,13 @@ pub type NameMap = HashMap<NodeId, String>;
 pub fn sanitize_prism_label(label: &str) -> String {
     let mapped: String = label
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect();
     // Collapse runs of underscores
     let mut result = String::with_capacity(mapped.len());
@@ -205,7 +236,12 @@ pub fn generate_prism_model(graph: &SnnGraph, config: &PrismGenConfig) -> String
     out
 }
 
-fn write_global_constants(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
+fn write_global_constants(
+    out: &mut String,
+    graph: &SnnGraph,
+    config: &PrismGenConfig,
+    names: &NameMap,
+) {
     let m = &config.model;
     writeln!(out, "// Global neuron parameters").ok();
     // Values are already in 0-100 range
@@ -335,7 +371,12 @@ fn write_transfer_formulas(out: &mut String, _graph: &SnnGraph) {
     .ok();
 }
 
-fn write_potential_formulas(out: &mut String, graph: &SnnGraph, _config: &PrismGenConfig, names: &NameMap) {
+fn write_potential_formulas(
+    out: &mut String,
+    graph: &SnnGraph,
+    _config: &PrismGenConfig,
+    names: &NameMap,
+) {
     writeln!(
         out,
         "// Membrane potential update formulas (using per-neuron bounds)"
@@ -564,7 +605,12 @@ fn categorize_generators(
     }
 }
 
-fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
+fn write_input_module(
+    out: &mut String,
+    graph: &SnnGraph,
+    config: &PrismGenConfig,
+    names: &NameMap,
+) {
     let inputs: Vec<_> = graph
         .nodes
         .iter()
@@ -802,7 +848,13 @@ fn write_xor_mixed_transitions(out: &mut String, input_name: &str, cats: &Catego
 }
 
 #[expect(clippy::needless_range_loop)]
-fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
+fn write_neuron_module(
+    out: &mut String,
+    node: &Node,
+    _graph: &SnnGraph,
+    config: &PrismGenConfig,
+    names: &NameMap,
+) {
     let n = &names[&node.id];
     let model = &config.model;
     let levels = model.threshold_levels.clamp(1, 10);
@@ -953,7 +1005,8 @@ fn write_neuron_module(out: &mut String, node: &Node, _graph: &SnnGraph, config:
         writeln!(
             out,
             "  [tick] s_{n} = 2 & rref_{n} = 0 -> (p_{n}' = P_reset) & (y_{n}' = 0) & (s_{n}' = 0);"
-        ).ok();
+        )
+        .ok();
     }
 
     writeln!(out, "endmodule").ok();
@@ -998,7 +1051,10 @@ fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, nam
     let outputs = graph.output_neurons();
 
     if !outputs.is_empty() {
-        let output_spikes: Vec<_> = outputs.iter().map(|id| format!("y_{} = 1", names[id])).collect();
+        let output_spikes: Vec<_> = outputs
+            .iter()
+            .map(|id| format!("y_{} = 1", names[id]))
+            .collect();
         writeln!(
             out,
             "label \"output_spike\" = ({});",
@@ -1066,11 +1122,7 @@ pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
             continue;
         }
         let n = &names[&node.id];
-        writeln!(
-            out,
-            "P>=1 [ G ((s_{n} = 1) => (y_{n} = 0)) ]"
-        )
-        .ok();
+        writeln!(out, "P>=1 [ G ((s_{n} = 1) => (y_{n} = 0)) ]").ok();
     }
     writeln!(out).ok();
 
@@ -1315,7 +1367,10 @@ mod tests {
         assert!(prism.contains("step :"), "step variable missing");
 
         // Should contain formula for the periodic pattern (label: "Input0")
-        assert!(prism.contains("in_Input0_g0_fires"), "Generator formula missing");
+        assert!(
+            prism.contains("in_Input0_g0_fires"),
+            "Generator formula missing"
+        );
     }
 
     #[test]

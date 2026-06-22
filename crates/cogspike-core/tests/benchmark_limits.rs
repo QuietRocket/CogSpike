@@ -108,7 +108,11 @@ fn make_gen_config(model: ModelConfig, weight_levels: u8) -> PrismGenConfig {
 
 #[test]
 fn generate_benchmark_models() {
-    let out_dir = std::path::Path::new("research/limits/benchmark");
+    // Anchor at the repo root (tests run with cwd = crates/cogspike-core).
+    let out_dir = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../research/limits/benchmark"
+    ));
     fs::create_dir_all(out_dir).expect("create benchmark directory");
 
     let weight_levels: &[u8] = &[2, 3, 5];

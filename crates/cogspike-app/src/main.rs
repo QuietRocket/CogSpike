@@ -1,6 +1,13 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+mod app;
+mod ui;
+
+// Re-export the cogspike-core modules under `crate::` so the existing
+// `crate::{simulation,learning,model_checker,snn}` paths in app.rs / ui/ resolve unchanged.
+pub(crate) use cog_spike::{learning, model_checker, simulation, snn};
+
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
@@ -20,7 +27,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "CogSpike Workbench",
         native_options,
-        Box::new(|cc| Ok(Box::new(cog_spike::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(crate::app::TemplateApp::new(cc)))),
     )
 }
 
@@ -50,7 +57,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(cog_spike::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(crate::app::TemplateApp::new(cc)))),
             )
             .await;
 

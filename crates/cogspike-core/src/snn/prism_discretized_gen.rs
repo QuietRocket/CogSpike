@@ -16,7 +16,7 @@ use crate::snn::discretization::{
     discretized_threshold,
 };
 use crate::snn::graph::{Node, SnnGraph};
-use crate::snn::prism_gen::{build_name_map, NameMap, PrismGenConfig};
+use crate::snn::prism_gen::{NameMap, PrismGenConfig, build_name_map};
 use std::fmt::Write as _;
 
 /// Generates a discretized PRISM model from an SNN graph.
@@ -121,10 +121,30 @@ fn write_discretized_constants(
     let k = m.threshold_levels.clamp(1, 10);
 
     writeln!(out, "// Discretization parameters (paper sections 3-4)").ok();
-    writeln!(out, "const int WL = {};       // Weight discretization levels", wl).ok();
-    writeln!(out, "const int T_d = {};      // Discretized threshold (paper section 3.2)", t_d).ok();
-    writeln!(out, "const double r = {};     // Retention rate — multiplicative leak (paper section 4.2)", retention_rate).ok();
-    writeln!(out, "const int K = {};        // Number of threshold levels", k).ok();
+    writeln!(
+        out,
+        "const int WL = {};       // Weight discretization levels",
+        wl
+    )
+    .ok();
+    writeln!(
+        out,
+        "const int T_d = {};      // Discretized threshold (paper section 3.2)",
+        t_d
+    )
+    .ok();
+    writeln!(
+        out,
+        "const double r = {};     // Retention rate — multiplicative leak (paper section 4.2)",
+        retention_rate
+    )
+    .ok();
+    writeln!(
+        out,
+        "const int K = {};        // Number of threshold levels",
+        k
+    )
+    .ok();
 
     if m.enable_arp {
         writeln!(out, "const int ARP = {};", m.arp).ok();
@@ -253,8 +273,16 @@ fn write_potential_formulas(
     _t_d: i32,
     names: &NameMap,
 ) {
-    writeln!(out, "// Potential update with multiplicative leak (isomorphic with simulation engine)").ok();
-    writeln!(out, "// newP_n = max(P_MIN_n, min(P_MAX_n, floor(r * p_n) + contrib_n))").ok();
+    writeln!(
+        out,
+        "// Potential update with multiplicative leak (isomorphic with simulation engine)"
+    )
+    .ok();
+    writeln!(
+        out,
+        "// newP_n = max(P_MIN_n, min(P_MAX_n, floor(r * p_n) + contrib_n))"
+    )
+    .ok();
 
     for node in &graph.nodes {
         if graph.is_input(node.id) {
@@ -268,7 +296,6 @@ fn write_potential_formulas(
         .ok();
     }
 }
-
 
 fn write_feasibility_analysis(
     out: &mut String,
@@ -299,10 +326,18 @@ fn write_feasibility_analysis(
                 writeln!(out, "// {name}: FEASIBLE (single-step reach)").ok();
             }
             Feasibility::MultiStep { min_steps } => {
-                writeln!(out, "// {name}: FEASIBLE (multi-step, min {min_steps} steps)").ok();
+                writeln!(
+                    out,
+                    "// {name}: FEASIBLE (multi-step, min {min_steps} steps)"
+                )
+                .ok();
             }
             Feasibility::Impossible => {
-                writeln!(out, "// WARNING: {name} INFEASIBLE — steady-state below threshold").ok();
+                writeln!(
+                    out,
+                    "// WARNING: {name} INFEASIBLE — steady-state below threshold"
+                )
+                .ok();
             }
         }
     }
@@ -346,7 +381,12 @@ fn write_global_clock(out: &mut String, config: &PrismGenConfig) {
     writeln!(out, "endmodule").ok();
 }
 
-fn write_input_module(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, names: &NameMap) {
+fn write_input_module(
+    out: &mut String,
+    graph: &SnnGraph,
+    config: &PrismGenConfig,
+    names: &NameMap,
+) {
     let inputs: Vec<_> = graph
         .nodes
         .iter()
@@ -525,7 +565,11 @@ fn write_discretized_neuron_module(
             continue;
         }
 
-        writeln!(out, "  // Level {j}: {lower} < newP_{n} <= {upper} -> fire P={fire_prob:.2}").ok();
+        writeln!(
+            out,
+            "  // Level {j}: {lower} < newP_{n} <= {upper} -> fire P={fire_prob:.2}"
+        )
+        .ok();
         writeln!(
             out,
             "  [tick] {state_guard}newP_{n} > {lower} & newP_{n} <= {upper} -> {:.6}:(y_{n}' = 1) & (p_{n}' = 0) + {:.6}:(y_{n}' = 0) & (p_{n}' = newP_{n});",
@@ -570,10 +614,20 @@ fn write_discretized_neuron_module(
     if model.enable_arp && model.enable_rrp {
         let alpha = model.alpha as f64 / 100.0;
 
-        writeln!(out, "  // Relative refractory period (alpha-scaled, newP guards)").ok();
+        writeln!(
+            out,
+            "  // Relative refractory period (alpha-scaled, newP guards)"
+        )
+        .ok();
 
         for j in 0..=k {
-            let base_prob = if j == 0 { 0.0 } else if j == k { 1.0 } else { j as f64 * step };
+            let base_prob = if j == 0 {
+                0.0
+            } else if j == k {
+                1.0
+            } else {
+                j as f64 * step
+            };
             let fire_prob = alpha * base_prob;
             let no_fire_prob = 1.0 - fire_prob;
 
@@ -592,7 +646,9 @@ fn write_discretized_neuron_module(
             } else {
                 let lower = boundaries[j];
                 let upper = boundaries[j + 1];
-                if lower == upper { continue; }
+                if lower == upper {
+                    continue;
+                }
                 if fire_prob.abs() < 1e-9 {
                     writeln!(out, "  [tick] s_{n} = 2 & rref_{n} > 0 & newP_{n} > {lower} & newP_{n} <= {upper} -> (y_{n}' = 0) & (p_{n}' = newP_{n}) & (rref_{n}' = rref_{n} - 1);").ok();
                 } else {
@@ -601,7 +657,11 @@ fn write_discretized_neuron_module(
             }
         }
 
-        writeln!(out, "  [tick] s_{n} = 2 & rref_{n} = 0 -> (p_{n}' = 0) & (y_{n}' = 0) & (s_{n}' = 0);").ok();
+        writeln!(
+            out,
+            "  [tick] s_{n} = 2 & rref_{n} = 0 -> (p_{n}' = 0) & (y_{n}' = 0) & (s_{n}' = 0);"
+        )
+        .ok();
     }
 
     writeln!(out, "endmodule").ok();
@@ -648,7 +708,10 @@ fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, nam
 
     let outputs = graph.output_neurons();
     if !outputs.is_empty() {
-        let output_spikes: Vec<_> = outputs.iter().map(|id| format!("y_{} = 1", names[id])).collect();
+        let output_spikes: Vec<_> = outputs
+            .iter()
+            .map(|id| format!("y_{} = 1", names[id]))
+            .collect();
         writeln!(
             out,
             "label \"output_spike\" = ({});",
@@ -790,7 +853,9 @@ mod tests {
         // Should contain exact potential variables with named labels
         // The demo layout has neurons labeled "Neuron A", "Neuron B", "Output"
         let has_potential = prism.lines().any(|line| {
-            line.contains(" p_Neuron_A :") || line.contains(" p_Neuron_B :") || line.contains(" p_Output :")
+            line.contains(" p_Neuron_A :")
+                || line.contains(" p_Neuron_B :")
+                || line.contains(" p_Output :")
         });
         assert!(
             has_potential,

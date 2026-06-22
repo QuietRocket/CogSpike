@@ -220,7 +220,8 @@ fn draw_edges_interactive(
             0.0
         };
 
-        let edge_midpoint = draw_directed_edge(painter, from_screen, to_screen, color, curve_offset);
+        let edge_midpoint =
+            draw_directed_edge(painter, from_screen, to_screen, color, curve_offset);
 
         // Draw weight label at the edge midpoint
         let dir = to_screen - from_screen;
@@ -243,8 +244,7 @@ fn draw_edges_interactive(
 
         // Create an invisible hit-test rectangle at the curve midpoint for clicking
         let hit_size = 20.0;
-        let hit_rect =
-            egui::Rect::from_center_size(edge_midpoint, egui::vec2(hit_size, hit_size));
+        let hit_rect = egui::Rect::from_center_size(edge_midpoint, egui::vec2(hit_size, hit_size));
         let edge_response = ui.interact(
             hit_rect,
             ui.id().with(("edge", edge_id.0)),
@@ -1552,7 +1552,7 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .join(" → ");
                     ui.monospace(&history);
                 }
-        });
+            });
         }
     });
 

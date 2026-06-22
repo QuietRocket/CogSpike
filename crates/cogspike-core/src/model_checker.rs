@@ -1,9 +1,4 @@
 use std::{
-    env,
-    ffi::OsString,
-    fs,
-    io::Read,
-    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -12,10 +7,21 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Native-only imports: used solely by the PRISM `LocalPrism` model-checker below,
+// which is itself `#[cfg(not(target_arch = "wasm32"))]`.
 #[cfg(not(target_arch = "wasm32"))]
-use std::process::{Command, Stdio};
+use std::{
+    env,
+    ffi::OsString,
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+};
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Result, anyhow};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]

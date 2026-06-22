@@ -1,48 +1,16 @@
-[package]
-name = "cog_spike"
+# CogSpike is a Cargo workspace:
+#   crates/cogspike-core  — the egui-free simulation/coder/verification library (lib `cog_spike`)
+#   crates/cogspike-app   — the eframe/egui workbench + gym front-end (bin `cog_spike`)
+[workspace]
+resolver = "3"
+members = ["crates/cogspike-core", "crates/cogspike-app"]
+default-members = ["crates/cogspike-app"]
+
+[workspace.package]
 version = "0.1.0"
 authors = ["Nik Zandian <zandian@i3s.unice.fr>"]
 edition = "2024"
-include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
 rust-version = "1.88"
-default-run = "cog_spike"
-
-[[bin]]
-name = "export"
-path = "src/bin/export.rs"
-
-[package.metadata.docs.rs]
-all-features = true
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
-
-[dependencies]
-egui = "0.33.0"
-eframe = { version = "0.33.0", default-features = false, features = [
-    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-    "wayland",       # To support Linux (and CI)
-    "x11",           # To support older Linux distributions (restores one of the default features)
-] }
-log = "0.4.27"
-
-# You only need serde if you want app persistence:
-serde = { version = "1.0.219", features = ["derive"] }
-anyhow = "1.0.94"
-rand = "0.8"
-plotters = "0.3"
-
-# native:
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.11.8"
-tempfile = "3.14.0"
-clap = { version = "4", features = ["derive"] }
-
-# web:
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4.50"
-web-sys = "0.3.70"              # to access the DOM (to hide the loading text)
 
 [profile.release]
 opt-level = 2 # fast and small wasm
@@ -64,10 +32,7 @@ opt-level = 2
 
 
 # ----------------------------------------------------------------------------------------
-# Lints:
-
-[lints]
-workspace = true
+# Lints (defined here at the workspace root; each member opts in with `[lints] workspace = true`):
 
 [workspace.lints.rust]
 unsafe_code = "deny"

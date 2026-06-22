@@ -11,7 +11,7 @@
 use cog_spike::simulation::{InputNeuronConfig, ModelConfig};
 use cog_spike::snn::graph::{NodeKind, NodeRole, SnnGraph};
 use cog_spike::snn::prism_discretized_gen::generate_discretized_model;
-use cog_spike::snn::prism_gen::{generate_prism_model, PrismGenConfig};
+use cog_spike::snn::prism_gen::{PrismGenConfig, generate_prism_model};
 use std::fs;
 
 // ============================================================================
@@ -235,14 +235,46 @@ fn generate_paper_benchmark_models() {
     fs::create_dir_all(out_dir).expect("create benchmark directory");
 
     let topologies = vec![
-        TopologyDef { name: "single",      builder: topo_single,     use_case_study_config: false },
-        TopologyDef { name: "chain2",      builder: topo_chain2,     use_case_study_config: false },
-        TopologyDef { name: "chain3",      builder: topo_chain3,     use_case_study_config: false },
-        TopologyDef { name: "chain4",      builder: topo_chain4,     use_case_study_config: false },
-        TopologyDef { name: "fork",        builder: topo_fork,       use_case_study_config: false },
-        TopologyDef { name: "diamond",     builder: topo_diamond,    use_case_study_config: false },
-        TopologyDef { name: "convergent",  builder: topo_convergent, use_case_study_config: false },
-        TopologyDef { name: "contra3",     builder: topo_contra3,    use_case_study_config: true  },
+        TopologyDef {
+            name: "single",
+            builder: topo_single,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "chain2",
+            builder: topo_chain2,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "chain3",
+            builder: topo_chain3,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "chain4",
+            builder: topo_chain4,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "fork",
+            builder: topo_fork,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "diamond",
+            builder: topo_diamond,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "convergent",
+            builder: topo_convergent,
+            use_case_study_config: false,
+        },
+        TopologyDef {
+            name: "contra3",
+            builder: topo_contra3,
+            use_case_study_config: true,
+        },
     ];
 
     let mut summary = String::from(
@@ -267,10 +299,7 @@ fn generate_paper_benchmark_models() {
         let configs: Vec<(&str, ModelConfig)> = if topo.use_case_study_config {
             vec![("casestudy", case_study_config())]
         } else {
-            vec![
-                ("det", det_config()),
-                ("fast", fast_config()),
-            ]
+            vec![("det", det_config()), ("fast", fast_config())]
         };
 
         for (config_name, model_config) in &configs {
@@ -313,7 +342,10 @@ fn generate_paper_benchmark_models() {
     let summary_path = out_dir.join("model_summary.csv");
     fs::write(&summary_path, &summary).expect("write summary CSV");
 
-    println!("\n=== Generated {file_count} .pm files in {} ===", out_dir.display());
+    println!(
+        "\n=== Generated {file_count} .pm files in {} ===",
+        out_dir.display()
+    );
     println!("Summary: {}", summary_path.display());
     println!("\nNext: run  bash benchmark/run_prism.sh");
 }
