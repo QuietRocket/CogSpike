@@ -111,7 +111,8 @@ impl Mode {
 
 impl Default for Mode {
     fn default() -> Self {
-        Self::Design
+        // Open on the playground (the demo front door), not the SNN editor.
+        Self::Gym
     }
 }
 
