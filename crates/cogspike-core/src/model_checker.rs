@@ -19,9 +19,9 @@ use std::{
     process::{Command, Stdio},
 };
 
-use anyhow::{Result, anyhow};
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::Context as _;
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
