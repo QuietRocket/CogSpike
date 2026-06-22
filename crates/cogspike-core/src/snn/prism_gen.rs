@@ -86,7 +86,7 @@ pub fn sanitize_prism_label(label: &str) -> String {
     }
     // Handle empty or digit-leading
     if result.is_empty() {
-        result = "unnamed".to_string();
+        result = "unnamed".to_owned();
     } else if result.starts_with(|c: char| c.is_ascii_digit()) {
         result = format!("n{result}");
     }
@@ -109,8 +109,10 @@ pub fn build_name_map(graph: &SnnGraph) -> NameMap {
         seen.entry(sanitized.clone()).or_default().push(node.id);
         map.insert(node.id, sanitized);
     }
-    // Disambiguate collisions
-    for (base, ids) in &seen {
+    // Disambiguate collisions (sorted for deterministic codegen output)
+    let mut seen_items: Vec<_> = seen.iter().collect();
+    seen_items.sort_by(|(a, _), (b, _)| a.cmp(b));
+    for (base, ids) in seen_items {
         if ids.len() > 1 {
             for id in ids {
                 map.insert(*id, format!("{}_{}", base, id.0));
@@ -291,9 +293,9 @@ fn write_global_constants(
 }
 
 /// Compute the optimal potential range for a specific neuron based on incoming weights.
-/// Returns (p_min, p_max) where:
-/// - p_max = max(P_rth, sum of positive incoming weights) with headroom
-/// - p_min = -(sum of negative incoming weights) or 0 if no inhibitory
+/// Returns (`p_min`, `p_max`) where:
+/// - `p_max` = `max(P_rth`, sum of positive incoming weights) with headroom
+/// - `p_min` = -(sum of negative incoming weights) or 0 if no inhibitory
 fn compute_neuron_potential_range(
     node: &Node,
     graph: &SnnGraph,
@@ -458,7 +460,7 @@ fn needs_global_clock(graph: &SnnGraph) -> bool {
         })
 }
 
-/// Write the GlobalClock module for time-dependent input patterns.
+/// Write the `GlobalClock` module for time-dependent input patterns.
 fn write_global_clock(out: &mut String, config: &PrismGenConfig) {
     let t_max = config.time_bound.unwrap_or(100);
     writeln!(out, "// Global clock for time-dependent input patterns").ok();
@@ -470,7 +472,7 @@ fn write_global_clock(out: &mut String, config: &PrismGenConfig) {
 }
 
 /// Convert a deterministic pattern to a PRISM formula expression.
-/// Returns None for probabilistic patterns (Random, Poisson) and InternalFiring.
+/// Returns None for probabilistic patterns (Random, Poisson) and `InternalFiring`.
 fn pattern_to_formula(pattern: &InputPattern, input_name: &str, gen_idx: usize) -> Option<String> {
     let formula_name = format!("in_{input_name}_g{gen_idx}");
     match pattern {
@@ -632,7 +634,7 @@ fn write_input_module(
     writeln!(out, "// Input generator formulas").ok();
     for input in &inputs {
         let input_name = &names[&input.id];
-        if let Some(ref cfg) = input.input_config {
+        if let Some(cfg) = &input.input_config {
             for (idx, generator) in cfg.generators.iter().enumerate() {
                 if !generator.active {
                     continue;
@@ -667,7 +669,7 @@ fn write_input_module(
     for input in &inputs {
         let input_name = &names[&input.id];
 
-        if let Some(ref cfg) = input.input_config {
+        if let Some(cfg) = &input.input_config {
             let active_count = cfg.generators.iter().filter(|g| g.active).count();
 
             if active_count == 0 {
@@ -713,8 +715,7 @@ fn write_input_transitions(
         let p_no_fire = 1.0 - p_fire;
         writeln!(
             out,
-            "  [tick] true -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
-            p_fire, p_no_fire
+            "  [tick] true -> {p_fire:.6}:(x_{n}' = 1) + {p_no_fire:.6}:(x_{n}' = 0);"
         )
         .ok();
         return;
@@ -763,6 +764,11 @@ fn write_input_transitions(
 }
 
 /// Combine deterministic formula names with the given mode.
+// formulas[0] guarded by the just-checked `formulas.len() == 1`
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indices are in-bounds by construction"
+)]
 fn combine_deterministic_formulas(
     formulas: &[(usize, String)],
     mode: GeneratorCombineMode,
@@ -801,8 +807,7 @@ fn write_xor_mixed_transitions(out: &mut String, input_name: &str, cats: &Catego
     if det_count > 4 {
         writeln!(
             out,
-            "  // WARNING: XOR with {} deterministic generators may cause state explosion",
-            det_count
+            "  // WARNING: XOR with {det_count} deterministic generators may cause state explosion"
         )
         .ok();
     }
@@ -839,15 +844,18 @@ fn write_xor_mixed_transitions(out: &mut String, input_name: &str, cats: &Catego
         } else {
             writeln!(
                 out,
-                "  [tick] ({guard}) -> {:.6}:(x_{n}' = 1) + {:.6}:(x_{n}' = 0);",
-                p_fire, p_no_fire
+                "  [tick] ({guard}) -> {p_fire:.6}:(x_{n}' = 1) + {p_no_fire:.6}:(x_{n}' = 0);"
             )
             .ok();
         }
     }
 }
 
-#[expect(clippy::needless_range_loop)]
+// long but cohesive code generator; splitting hurts readability
+#[expect(
+    clippy::too_many_lines,
+    reason = "cohesive code generator; splitting hurts readability"
+)]
 fn write_neuron_module(
     out: &mut String,
     node: &Node,
@@ -862,10 +870,8 @@ fn write_neuron_module(
     // Determine max state based on enabled refractory periods
     let max_state = if model.enable_arp && model.enable_rrp {
         2
-    } else if model.enable_arp {
-        1
     } else {
-        0
+        i32::from(model.enable_arp)
     };
 
     writeln!(out, "module {n}").ok();
@@ -997,8 +1003,7 @@ fn write_neuron_module(
         let max_no_spike_prob = 1.0 - alpha;
         writeln!(
             out,
-            "  [tick] s_{n} = 2 & rref_{n} > 0 & newPotential_{n} > threshold{levels} -> {:.4}:(y_{n}' = 0) & (p_{n}' = newPotential_{n}) & (rref_{n}' = rref_{n} - 1) + {:.4}:(y_{n}' = 1) & (p_{n}' = P_reset) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);",
-            max_no_spike_prob, max_spike_prob
+            "  [tick] s_{n} = 2 & rref_{n} > 0 & newPotential_{n} > threshold{levels} -> {max_no_spike_prob:.4}:(y_{n}' = 0) & (p_{n}' = newPotential_{n}) & (rref_{n}' = rref_{n} - 1) + {max_spike_prob:.4}:(y_{n}' = 1) & (p_{n}' = P_reset) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);"
         ).ok();
 
         // RRP ended - return to normal
@@ -1065,6 +1070,11 @@ fn write_labels(out: &mut String, graph: &SnnGraph, config: &PrismGenConfig, nam
 }
 
 /// Generates PCTL property specifications for common verification queries.
+// names[&node.id] is in-bounds: build_name_map inserts every node id
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indices are in-bounds by construction"
+)]
 pub fn generate_pctl_properties(graph: &SnnGraph) -> String {
     let mut out = String::with_capacity(1024);
     let names = build_name_map(graph);
@@ -1309,7 +1319,7 @@ mod tests {
         };
         let formula = pattern_to_formula(&pattern, "S1", 0);
         assert!(formula.is_some());
-        let f = formula.unwrap();
+        let f = formula.expect("Periodic pattern always yields a formula");
         assert!(f.contains("mod(step + 2, 5) = 0"));
     }
 
@@ -1321,7 +1331,7 @@ mod tests {
         };
         let formula = pattern_to_formula(&pattern, "S2", 0);
         assert!(formula.is_some());
-        let f = formula.unwrap();
+        let f = formula.expect("Burst pattern always yields a formula");
         assert!(f.contains("mod(step, 5) < 3"));
     }
 
@@ -1346,7 +1356,7 @@ mod tests {
             let mut config = InputNeuronConfig::default();
             config.generators.push(InputGenerator {
                 id: GeneratorId(0),
-                label: "Periodic".to_string(),
+                label: "Periodic".to_owned(),
                 pattern: InputPattern::Periodic {
                     period: 10,
                     phase: 0,
@@ -1387,13 +1397,13 @@ mod tests {
             config.combine_mode = GeneratorCombineMode::Or;
             config.generators.push(InputGenerator {
                 id: GeneratorId(0),
-                label: "Random1".to_string(),
+                label: "Random1".to_owned(),
                 pattern: InputPattern::Random { probability: 0.3 },
                 active: true,
             });
             config.generators.push(InputGenerator {
                 id: GeneratorId(1),
-                label: "Random2".to_string(),
+                label: "Random2".to_owned(),
                 pattern: InputPattern::Random { probability: 0.5 },
                 active: true,
             });

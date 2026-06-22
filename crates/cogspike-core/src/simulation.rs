@@ -61,8 +61,8 @@ pub struct ModelConfig {
 
     // === PRISM State Space Optimization ===
     /// Optional threshold for deriving PRISM potential range.
-    /// When set, P_MIN = -2*threshold, P_MAX = 2*threshold.
-    /// When None, uses the default range from PrismGenConfig.
+    /// When set, `P_MIN` = -2*threshold, `P_MAX` = 2*threshold.
+    /// When None, uses the default range from `PrismGenConfig`.
     #[serde(default)]
     pub prism_potential_threshold: Option<u16>,
 }
@@ -117,7 +117,7 @@ impl ModelConfig {
         }
     }
 
-    /// Validate and clamp threshold_levels to valid range.
+    /// Validate and clamp `threshold_levels` to valid range.
     pub fn validate(&mut self) {
         self.threshold_levels = self.threshold_levels.clamp(1, 10);
     }
@@ -192,7 +192,8 @@ impl InputPattern {
     pub fn fires_at(&self, step: u32, dt_ms: f32, rng: &mut impl Rng) -> bool {
         match self {
             Self::AlwaysOn => true,
-            Self::AlwaysOff => false,
+            // InternalFiring is handled separately by neuron logic; here it never fires.
+            Self::AlwaysOff | Self::InternalFiring => false,
             Self::Pulse { duration } => step < *duration,
             Self::Silence { duration } => step >= *duration,
             Self::Random { probability } => rng.r#gen::<f64>() < *probability,
@@ -219,7 +220,6 @@ impl InputPattern {
                 rng.r#gen::<f64>() < prob.min(1.0)
             }
             Self::Custom { spike_times } => spike_times.binary_search(&step).is_ok(),
-            Self::InternalFiring => false, // Handled separately by neuron logic
         }
     }
 
@@ -367,13 +367,13 @@ pub struct NeuronSimState {
     /// - 1 = ARP (Absolute Refractory Period)
     /// - 2 = RRP (Relative Refractory Period)
     pub state: u8,
-    /// Membrane potential (P_MIN..P_MAX range).
+    /// Membrane potential (`P_MIN..P_MAX` range).
     pub potential: i32,
     /// Spike output for current time step (0 or 1).
     pub spike_output: u8,
-    /// Absolute refractory counter (only used if enable_arp).
+    /// Absolute refractory counter (only used if `enable_arp`).
     pub arp_counter: u32,
-    /// Relative refractory counter (only used if enable_rrp).
+    /// Relative refractory counter (only used if `enable_rrp`).
     pub rrp_counter: u32,
 }
 
@@ -562,7 +562,8 @@ pub fn start_simulation_job(graph: SnnGraph, config: SimulationConfig) -> Simula
 
     std::thread::spawn(move || {
         let result = run_simulation_with_progress(&graph, &config, &progress_tx, &stop_flag_clone);
-        let _ = result_tx.send(result);
+        // Fire-and-forget: receiver may have been dropped if the job handle was discarded.
+        result_tx.send(result).ok();
     });
 
     SimulationJob {
@@ -575,6 +576,11 @@ pub fn start_simulation_job(graph: SnnGraph, config: SimulationConfig) -> Simula
 }
 
 /// Run simulation with progress reporting.
+// long but cohesive code generator; splitting hurts readability
+#[expect(
+    clippy::too_many_lines,
+    reason = "cohesive code generator; splitting hurts readability"
+)]
 fn run_simulation_with_progress(
     graph: &SnnGraph,
     config: &SimulationConfig,
@@ -677,7 +683,9 @@ fn run_simulation_with_progress(
         }
 
         if config.record_potentials {
-            for (node_id, neuron) in &neurons {
+            let mut entries: Vec<_> = neurons.iter().collect();
+            entries.sort_by_key(|(node_id, _)| node_id.0);
+            for (node_id, neuron) in entries {
                 if let Some(trace) = history.potentials.get_mut(node_id) {
                     trace.push(neuron.potential);
                 }
@@ -686,12 +694,17 @@ fn run_simulation_with_progress(
 
         // Send progress update
         if step % progress_interval == 0 {
-            let total_spikes: u32 = history.spike_counts.values().sum();
-            let _ = progress_tx.send(SimulationProgress {
-                current_step: step,
-                total_steps,
-                spike_count: total_spikes,
-            });
+            // Order-independent sum; collect first to avoid iterating the hash map directly.
+            let counts: Vec<u32> = history.spike_counts.values().copied().collect();
+            let total_spikes: u32 = counts.iter().sum();
+            // Fire-and-forget: dropped receiver simply means no listener for progress.
+            progress_tx
+                .send(SimulationProgress {
+                    current_step: step,
+                    total_steps,
+                    spike_count: total_spikes,
+                })
+                .ok();
         }
     }
 
@@ -814,7 +827,9 @@ pub fn run_simulation(graph: &SnnGraph, config: &SimulationConfig) -> Simulation
 
         // Phase 5: Record potentials
         if config.record_potentials {
-            for (node_id, neuron) in &neurons {
+            let mut entries: Vec<_> = neurons.iter().collect();
+            entries.sort_by_key(|(node_id, _)| node_id.0);
+            for (node_id, neuron) in entries {
                 if let Some(trace) = history.potentials.get_mut(node_id) {
                     trace.push(neuron.potential);
                 }
@@ -845,7 +860,7 @@ fn generate_input_spikes(
         }
 
         // Read input config from the node's stored config (configured in Design tab)
-        let fires = if let Some(ref input_config) = node.input_config {
+        let fires = if let Some(input_config) = &node.input_config {
             input_config.fires_at(step, dt_ms, rng)
         } else {
             // Default: always on if no config set
@@ -853,7 +868,7 @@ fn generate_input_spikes(
         };
 
         if let Some(neuron) = neurons.get_mut(&node.id) {
-            neuron.spike_output = if fires { 1 } else { 0 };
+            neuron.spike_output = u8::from(fires);
         }
     }
 }
@@ -988,7 +1003,7 @@ fn handle_normal_state(
     let fires = rng.r#gen::<f64>() < fire_prob;
 
     if fires {
-        let next_state = if model.enable_arp { 1 } else { 0 };
+        let next_state = u8::from(model.enable_arp);
         NeuronUpdate {
             new_state: next_state,
             new_potential: model.p_reset as i32,
@@ -1158,6 +1173,11 @@ mod tests {
     }
 
     #[test]
+    // tests: indices are fixture-controlled
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "indices are in-bounds by construction"
+    )]
     fn test_variable_thresholds() {
         // Default (4 levels - optimized for speed)
         let model4 = ModelConfig::default();

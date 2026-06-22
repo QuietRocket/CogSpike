@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::too_many_lines,
+    clippy::unwrap_used,
+    reason = "test: prints diagnostics, long cohesive fixtures, unwraps"
+)]
 //! Paper benchmark: generates PRISM models for the paper's Table 1 and case study.
 //!
 //! Generates `.pm` files for 7 canonical topologies + contralateral inhibition,
@@ -18,7 +24,7 @@ use std::fs;
 // Topology Builders
 // ============================================================================
 
-/// Configure all input neurons with AlwaysOn.
+/// Configure all input neurons with `AlwaysOn`.
 fn configure_inputs(graph: &mut SnnGraph) {
     let inputs = graph.input_neurons();
     for id in inputs {
@@ -129,7 +135,7 @@ fn topo_convergent() -> SnnGraph {
 /// Inhibitory weights: N1→{N2,N3} = -100 (winner), N2→{N1,N3} = -70,
 /// N3→{N1,N2} = -70. Excitatory: S→N = +100, N→O = +100.
 ///
-/// Uses NodeRole::Input/Output to handle recurrent topology correctly.
+/// Uses `NodeRole::Input/Output` to handle recurrent topology correctly.
 fn topo_contra3() -> SnnGraph {
     let mut g = SnnGraph::default();
 
@@ -186,7 +192,7 @@ fn topo_contra3() -> SnnGraph {
 // Config Helpers
 // ============================================================================
 
-/// Paper case study configuration: k=4, p_rth=80, leak_r=50 (r=0.5), no ARP/RRP.
+/// Paper case study configuration: k=4, `p_rth=80`, `leak_r=50` (r=0.5), no ARP/RRP.
 fn case_study_config() -> ModelConfig {
     ModelConfig {
         threshold_levels: 4,
@@ -199,7 +205,7 @@ fn case_study_config() -> ModelConfig {
     }
 }
 
-/// Fast preset: k=4, no ARP/RRP (default ModelConfig).
+/// Fast preset: k=4, no ARP/RRP (default `ModelConfig`).
 fn fast_config() -> ModelConfig {
     ModelConfig::default()
 }
@@ -225,7 +231,7 @@ fn make_prism_config(model: ModelConfig, weight_levels: u8) -> PrismGenConfig {
 struct TopologyDef {
     name: &'static str,
     builder: fn() -> SnnGraph,
-    /// Use case study config (p_rth=80, r=0.5) instead of default fast config.
+    /// Use case study config (`p_rth=80`, r=0.5) instead of default fast config.
     use_case_study_config: bool,
 }
 

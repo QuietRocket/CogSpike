@@ -14,7 +14,7 @@ use std::{
     env,
     ffi::OsString,
     fs,
-    io::Read,
+    io::Read as _,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -44,31 +44,31 @@ pub enum PrismEngine {
 }
 
 impl PrismEngine {
-    pub const ALL: [PrismEngine; 5] = [
-        PrismEngine::Hybrid,
-        PrismEngine::Sparse,
-        PrismEngine::Explicit,
-        PrismEngine::Mtbdd,
-        PrismEngine::Exact,
+    pub const ALL: [Self; 5] = [
+        Self::Hybrid,
+        Self::Sparse,
+        Self::Explicit,
+        Self::Mtbdd,
+        Self::Exact,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            PrismEngine::Hybrid => "Hybrid (default)",
-            PrismEngine::Sparse => "Sparse",
-            PrismEngine::Explicit => "Explicit",
-            PrismEngine::Mtbdd => "MTBDD",
-            PrismEngine::Exact => "Exact",
+            Self::Hybrid => "Hybrid (default)",
+            Self::Sparse => "Sparse",
+            Self::Explicit => "Explicit",
+            Self::Mtbdd => "MTBDD",
+            Self::Exact => "Exact",
         }
     }
 
     pub fn to_arg(self) -> Option<&'static str> {
         match self {
-            PrismEngine::Hybrid => None, // Default, no arg needed
-            PrismEngine::Sparse => Some("-sparse"),
-            PrismEngine::Explicit => Some("-explicit"),
-            PrismEngine::Mtbdd => Some("-mtbdd"),
-            PrismEngine::Exact => Some("-exact"),
+            Self::Hybrid => None, // Default, no arg needed
+            Self::Sparse => Some("-sparse"),
+            Self::Explicit => Some("-explicit"),
+            Self::Mtbdd => Some("-mtbdd"),
+            Self::Exact => Some("-exact"),
         }
     }
 }
@@ -86,25 +86,21 @@ pub enum PrismHeuristic {
 }
 
 impl PrismHeuristic {
-    pub const ALL: [PrismHeuristic; 3] = [
-        PrismHeuristic::None,
-        PrismHeuristic::Speed,
-        PrismHeuristic::Memory,
-    ];
+    pub const ALL: [Self; 3] = [Self::None, Self::Speed, Self::Memory];
 
     pub fn label(self) -> &'static str {
         match self {
-            PrismHeuristic::None => "None (manual)",
-            PrismHeuristic::Speed => "Speed",
-            PrismHeuristic::Memory => "Memory",
+            Self::None => "None (manual)",
+            Self::Speed => "Speed",
+            Self::Memory => "Memory",
         }
     }
 
     pub fn to_arg(self) -> Option<&'static str> {
         match self {
-            PrismHeuristic::None => None,
-            PrismHeuristic::Speed => Some("-heuristic speed"),
-            PrismHeuristic::Memory => Some("-heuristic memory"),
+            Self::None => None,
+            Self::Speed => Some("-heuristic speed"),
+            Self::Memory => Some("-heuristic memory"),
         }
     }
 }
@@ -124,28 +120,23 @@ pub enum PrismSolver {
 }
 
 impl PrismSolver {
-    pub const ALL: [PrismSolver; 4] = [
-        PrismSolver::Jacobi,
-        PrismSolver::GaussSeidel,
-        PrismSolver::Power,
-        PrismSolver::Sor,
-    ];
+    pub const ALL: [Self; 4] = [Self::Jacobi, Self::GaussSeidel, Self::Power, Self::Sor];
 
     pub fn label(self) -> &'static str {
         match self {
-            PrismSolver::Jacobi => "Jacobi (default)",
-            PrismSolver::GaussSeidel => "Gauss-Seidel",
-            PrismSolver::Power => "Power",
-            PrismSolver::Sor => "SOR",
+            Self::Jacobi => "Jacobi (default)",
+            Self::GaussSeidel => "Gauss-Seidel",
+            Self::Power => "Power",
+            Self::Sor => "SOR",
         }
     }
 
     pub fn to_arg(self) -> Option<&'static str> {
         match self {
-            PrismSolver::Jacobi => None, // Default, no arg needed
-            PrismSolver::GaussSeidel => Some("-gs"),
-            PrismSolver::Power => Some("-power"),
-            PrismSolver::Sor => Some("-sor"),
+            Self::Jacobi => None, // Default, no arg needed
+            Self::GaussSeidel => Some("-gs"),
+            Self::Power => Some("-power"),
+            Self::Sor => Some("-sor"),
         }
     }
 }
@@ -479,6 +470,18 @@ impl LocalPrism {
     ///
     /// If `stop_flag` is set to `true`, the PRISM process will be killed and
     /// an error will be returned indicating cancellation.
+    ///
+    /// # Errors
+    /// Returns an error if the temporary workspace or input files cannot be
+    /// created, if PRISM fails to spawn or exits with a non-zero status, or if
+    /// `stop_flag` is set (in which case the run is reported as cancelled).
+    // `request` and `stop_flag` are taken by value to match the public
+    // `ModelChecker`/worker-thread call sites in cogspike-app; switching to
+    // references would break those external callers.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public API takes owned args by value"
+    )]
     pub fn check_cancellable(
         &self,
         request: PrismRequest,
@@ -567,9 +570,9 @@ impl LocalPrism {
             loop {
                 // Check for cancellation
                 if stop_flag.load(Ordering::SeqCst) {
-                    // Kill the PRISM process
-                    let _ = child.kill();
-                    let _ = child.wait(); // Reap the zombie process
+                    // Kill the PRISM process (best-effort; ignore errors)
+                    child.kill().ok();
+                    child.wait().ok(); // Reap the zombie process (best-effort)
                     return Err(anyhow!("Model check cancelled"));
                 }
 
@@ -579,11 +582,11 @@ impl LocalPrism {
                         // Process finished - collect output
                         let mut stdout = String::new();
                         let mut stderr = String::new();
-                        if let Some(ref mut out) = child.stdout {
-                            let _ = out.read_to_string(&mut stdout);
+                        if let Some(out) = &mut child.stdout {
+                            out.read_to_string(&mut stdout).ok();
                         }
-                        if let Some(ref mut err) = child.stderr {
-                            let _ = err.read_to_string(&mut stderr);
+                        if let Some(err) = &mut child.stderr {
+                            err.read_to_string(&mut stderr).ok();
                         }
                         let raw_output = format!("{stdout}{stderr}");
 

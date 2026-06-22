@@ -1,4 +1,10 @@
-//! CLI export tool for CogSpike simulation diagrams.
+#![expect(
+    clippy::map_err_ignore,
+    clippy::print_stdout,
+    clippy::too_many_lines,
+    reason = "CLI tool: prints results to stdout"
+)]
+//! CLI export tool for `CogSpike` simulation diagrams.
 //!
 //! Generates raster plots and membrane potential traces as PNG images
 //! for research paper inclusion.
@@ -10,12 +16,12 @@
 
 use clap::Parser;
 use plotters::prelude::*;
-use rand::Rng;
-use rand::SeedableRng;
+use rand::Rng as _;
+use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use std::path::PathBuf;
 
-/// CogSpike diagram export tool.
+/// `CogSpike` diagram export tool.
 #[derive(Parser)]
 #[command(name = "export", about = "Generate simulation diagram PNGs")]
 struct Cli {
@@ -42,13 +48,13 @@ struct Cli {
 struct Scenario {
     number: u8,
     title: &'static str,
-    /// Discretized threshold T_d
+    /// Discretized threshold `T_d`
     threshold: i32,
     /// Leak factor ℓ (0.0 to 1.0)
     leak_factor: f64,
     /// Number of threshold levels N
     threshold_levels: usize,
-    /// Discretized input weight per step (δ_W(w))
+    /// Discretized input weight per step (`δ_W(w)`)
     input_weight: i32,
     /// Simulation duration in ms
     duration_ms: f32,
@@ -122,8 +128,8 @@ struct PaperSimResult {
 }
 
 /// Run the paper's additive leak model:
-///   p_{t+1} = max(0, p_t + λ_d + input)
-///   λ_d = -max(1, floor(ℓ · T_d))
+///   p_{t+1} = max(0, `p_t` + `λ_d` + input)
+///   `λ_d` = -max(1, floor(ℓ · `T_d`))
 ///
 /// Firing uses N threshold levels with probabilities [1/N, 2/N, ..., 1.0].
 fn run_paper_simulation(s: &Scenario) -> PaperSimResult {
@@ -195,7 +201,7 @@ fn run_scenario(
     let net_gain = scenario.input_weight + lambda_d;
 
     println!("\n── Scenario {} : {} ──", scenario.number, scenario.title);
-    println!("  λ_d = {}, net gain = {}", lambda_d, net_gain);
+    println!("  λ_d = {lambda_d}, net gain = {net_gain}");
 
     let result = run_paper_simulation(scenario);
 
@@ -271,7 +277,7 @@ fn draw_raster(
         .y_labels(num_neurons)
         .y_label_formatter(&|y| {
             let idx = y.round() as usize;
-            neuron_labels.get(idx).unwrap_or(&"").to_string()
+            (*neuron_labels.get(idx).unwrap_or(&"")).to_owned()
         })
         .draw()?;
 
@@ -478,8 +484,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if to_run.is_empty() {
-        eprintln!("No matching scenario found for '{}'", cli.scenario);
-        std::process::exit(1);
+        return Err(format!("No matching scenario found for '{}'", cli.scenario).into());
     }
 
     println!("CogSpike Diagram Export (paper additive leak model)");

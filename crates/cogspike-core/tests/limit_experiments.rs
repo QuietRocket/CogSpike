@@ -1,8 +1,9 @@
+#![expect(clippy::print_stdout, reason = "test: prints diagnostics")]
 //! Integration tests for SNN topology limit analysis.
 //!
 //! Generates PRISM `.pm` files for canonical topologies (single-neuron, chain,
 //! fork, diamond) with both precise and discretized models, in fast and full
-//! ModelConfig presets.
+//! `ModelConfig` presets.
 //!
 //! Run: `cargo test --test limit_experiments -- --nocapture`
 //! Generated files land in: `research/limits/experiments/`
@@ -13,7 +14,7 @@ use cog_spike::snn::prism_discretized_gen::generate_discretized_model;
 use cog_spike::snn::prism_gen::{PrismGenConfig, generate_prism_model};
 use std::fs;
 
-/// Helper: build a graph and configure input neurons with AlwaysOn pattern.
+/// Helper: build a graph and configure input neurons with `AlwaysOn` pattern.
 fn configure_inputs(graph: &mut SnnGraph) {
     let inputs = graph.input_neurons();
     for id in inputs {
@@ -24,7 +25,7 @@ fn configure_inputs(graph: &mut SnnGraph) {
     }
 }
 
-/// Helper: build PrismGenConfig from a ModelConfig preset.
+/// Helper: build `PrismGenConfig` from a `ModelConfig` preset.
 fn make_config(model: ModelConfig, weight_levels: u8) -> PrismGenConfig {
     PrismGenConfig {
         model,

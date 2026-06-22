@@ -36,7 +36,7 @@ label "goal_state" = s=1;
 label "error_state" = s=2;
 "#;
 
-/// The application state for CogSpike Workbench.
+/// The application state for `CogSpike` Workbench.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct TemplateApp {
@@ -109,7 +109,7 @@ pub enum AbstractionMode {
     #[default]
     Precise,
     /// Discretized model: weights mapped to [-W, W], potentials tracked exactly
-    /// in the reduced domain [0..T_d+E]. Preserves ALL PCTL properties while
+    /// in the reduced domain [`0..T_d+E`]. Preserves ALL PCTL properties while
     /// achieving ~50-170x state reduction per neuron. See paper §7.
     Discretized,
 }
@@ -566,7 +566,7 @@ impl TemplateApp {
             .unwrap_or("(none)")
     }
 
-    /// Get the PCTL formula from the active property, falling back to verify.current_formula.
+    /// Get the PCTL formula from the active property, falling back to `verify.current_formula`.
     pub(crate) fn active_formula(&self) -> String {
         self.selection
             .property
@@ -576,7 +576,7 @@ impl TemplateApp {
     }
 
     /// Get the description from the active property, falling back to verify.description.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(crate) fn active_description(&self) -> String {
         self.selection
             .property

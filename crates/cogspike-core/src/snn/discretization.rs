@@ -9,7 +9,7 @@
 //! - **Multiplicative leak**: `floor(r × p)` — same as simulation engine (§4.2)
 //! - **Negative potentials**: `P_MIN = -Σ|w_inhib|` preserves differential inhibition depth
 
-/// Maximum weight value in CogSpike's internal scale.
+/// Maximum weight value in `CogSpike`'s internal scale.
 const W_MAX: f64 = 100.0;
 
 /// Discretize a weight to the range `[-W, W]`.
@@ -40,7 +40,7 @@ pub fn discretized_threshold(threshold: u8, weight_levels: u8) -> i32 {
 
 /// Compute the minimum potential for a neuron in the discretized domain.
 ///
-/// P_MIN = sum of all negative (inhibitory) discretized incoming weights.
+/// `P_MIN` = sum of all negative (inhibitory) discretized incoming weights.
 /// This allows the potential to go negative, preserving differential
 /// inhibition depth that drives WTA convergence.
 ///
@@ -70,9 +70,9 @@ pub enum Feasibility {
 /// `p_ss = excitation / (1 - r)` under sustained maximum input. If `p_ss >= T_d`,
 /// the neuron is feasible.
 ///
-/// - `SingleStep`: max excitation in one tick ≥ T_d
-/// - `MultiStep`: needs accumulation over multiple ticks to reach T_d
-/// - `Impossible`: steady-state potential under sustained max input < T_d
+/// - `SingleStep`: max excitation in one tick ≥ `T_d`
+/// - `MultiStep`: needs accumulation over multiple ticks to reach `T_d`
+/// - `Impossible`: steady-state potential under sustained max input < `T_d`
 pub fn check_feasibility(excitatory_weights: &[i32], t_d: i32, retention_rate: f64) -> Feasibility {
     let max_excitation: i32 = excitatory_weights.iter().sum();
 

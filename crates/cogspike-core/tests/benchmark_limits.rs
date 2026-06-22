@@ -1,7 +1,12 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::unwrap_used,
+    reason = "test: prints diagnostics, unwraps fixtures"
+)]
 //! OOM benchmark: generates PRISM models for chains and forks at varying sizes.
 //!
-//! For each (topology, config_preset, model_type, W) combination, this test
-//! generates `.pm` files for sizes 1..MAX_SIZE.  The companion shell script
+//! For each (topology, `config_preset`, `model_type`, W) combination, this test
+//! generates `.pm` files for sizes `1..MAX_SIZE`.  The companion shell script
 //! `research/limits/run_benchmark.sh` then probes these with PRISM using
 //! binary search to find the maximal size before OOM.
 //!
@@ -30,7 +35,7 @@ fn build_chain(n: usize) -> SnnGraph {
 
     let mut prev = inp;
     for i in 1..=n {
-        let ni = g.add_node(&format!("N{i}"), NodeKind::Neuron, [i as f32, 0.0]);
+        let ni = g.add_node(format!("N{i}"), NodeKind::Neuron, [i as f32, 0.0]);
         g.add_edge(prev, ni, 80);
         prev = ni;
     }
@@ -49,7 +54,7 @@ fn build_fork(b: usize) -> SnnGraph {
 
     for i in 0..b {
         let y = (i as f32) - (b as f32 - 1.0) / 2.0;
-        let leaf = g.add_node(&format!("N{}", i + 2), NodeKind::Neuron, [2.0, y]);
+        let leaf = g.add_node(format!("N{}", i + 2), NodeKind::Neuron, [2.0, y]);
         g.add_edge(hub, leaf, 80);
     }
 
@@ -57,7 +62,7 @@ fn build_fork(b: usize) -> SnnGraph {
     g
 }
 
-/// Configure all input neurons with AlwaysOn.
+/// Configure all input neurons with `AlwaysOn`.
 fn configure_inputs(graph: &mut SnnGraph) {
     let inputs = graph.input_neurons();
     for id in inputs {

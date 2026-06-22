@@ -657,6 +657,11 @@ mod tests {
     // =========================================================================
 
     #[test]
+    // tests: indices are fixture-controlled
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "indices are in-bounds by construction"
+    )]
     fn test_shf_modifies_weights() {
         let mut graph = SnnGraph::demo_layout();
 
@@ -684,7 +689,9 @@ mod tests {
 
         // Verify that weights in the graph actually changed
         let mut any_changed = false;
-        for (edge_id, initial) in &initial_weights {
+        let mut initial_sorted: Vec<_> = initial_weights.iter().collect();
+        initial_sorted.sort_by_key(|(id, _)| id.0);
+        for (edge_id, initial) in initial_sorted {
             if let Some(edge) = graph.edges.iter().find(|e| e.id == *edge_id) {
                 // u8 weights, compare directly (difference of at least 1)
                 if edge.weight != *initial {
@@ -905,7 +912,8 @@ mod tests {
             epsilon: 0.0001,
         };
 
-        let _ = run_training_loop(&mut graph, &config, mock_verify_network_dynamics, None);
+        let _: TrainingResult =
+            run_training_loop(&mut graph, &config, mock_verify_network_dynamics, None);
 
         // Final probability should be higher
         let final_prob = mock_verify_network_dynamics(&graph).expect("verify failed");
@@ -962,6 +970,11 @@ mod tests {
     }
 
     #[test]
+    // tests: indices are fixture-controlled
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "indices are in-bounds by construction"
+    )]
     fn test_snhf_decreases_excitatory_weights() {
         // Create a graph with high weights
         let mut graph = SnnGraph::default();
@@ -1007,6 +1020,11 @@ mod tests {
     // =========================================================================
 
     #[test]
+    // tests: indices are fixture-controlled
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "indices are in-bounds by construction"
+    )]
     fn test_probability_trends_upward() {
         use std::sync::{Arc, Mutex};
 
@@ -1023,7 +1041,7 @@ mod tests {
         let probabilities = Arc::new(Mutex::new(Vec::new()));
         let probs_clone = Arc::clone(&probabilities);
 
-        let _ = run_training_loop(
+        let _: TrainingResult = run_training_loop(
             &mut graph,
             &config,
             mock_verify_weight_based,

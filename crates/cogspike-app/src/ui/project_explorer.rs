@@ -1,3 +1,9 @@
+#![expect(
+    clippy::indexing_slicing,
+    clippy::ref_patterns,
+    clippy::too_many_lines,
+    reason = "egui UI: indexes bounded element lists; long cohesive render fn"
+)]
 use crate::app::{DeleteTarget, RenameTarget, TemplateApp};
 use crate::snn::graph::SnnGraph;
 

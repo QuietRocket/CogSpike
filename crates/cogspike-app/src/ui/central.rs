@@ -1,3 +1,9 @@
+#![expect(
+    clippy::indexing_slicing,
+    clippy::needless_pass_by_ref_mut,
+    clippy::ref_patterns,
+    reason = "egui UI: indexes bounded element lists; eframe &mut signatures"
+)]
 use std::time::Duration;
 
 use crate::{
@@ -585,7 +591,7 @@ fn simulate_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) 
             }
         } else if let Some(ref result) = app.simulate.last_result {
             let total: u32 = result.history.spike_counts.values().sum();
-            ui.label(format!("Spikes: {}", total));
+            ui.label(format!("Spikes: {total}"));
         }
     });
 
@@ -1019,8 +1025,8 @@ fn draw_aggregate_stats(
                 let firing_rate = result.history.firing_rate(node.id, total_time_ms);
 
                 ui.label(&node.label);
-                ui.label(format!("{}", spike_count));
-                ui.label(format!("{:.1}", firing_rate));
+                ui.label(format!("{spike_count}"));
+                ui.label(format!("{firing_rate:.1}"));
                 ui.end_row();
             }
         });
@@ -1039,10 +1045,10 @@ fn draw_aggregate_stats(
 
     ui.horizontal(|ui| {
         ui.label("Total spikes:");
-        ui.strong(format!("{}", total_spikes));
+        ui.strong(format!("{total_spikes}"));
         ui.separator();
         ui.label("Avg firing rate:");
-        ui.strong(format!("{:.1} Hz", avg_rate));
+        ui.strong(format!("{avg_rate:.1} Hz"));
         ui.separator();
         ui.label("Duration:");
         ui.strong(format!(
@@ -1090,11 +1096,10 @@ fn verify_view(app: &mut TemplateApp, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         }
         // Cancel button - only enabled when a job is running
-        if app.verify.job.is_some() {
-            if ui.button("⏹ Cancel").clicked() {
+        if app.verify.job.is_some()
+            && ui.button("⏹ Cancel").clicked() {
                 app.cancel_model_check();
             }
-        }
         if ui
             .add_enabled(app.verify.job.is_none(), egui::Button::new("Reset result"))
             .clicked()

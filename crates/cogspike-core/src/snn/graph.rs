@@ -324,7 +324,7 @@ impl SnnGraph {
     }
 
     /// Check if the graph has any inhibitory synapses.
-    /// Used for PRISM optimization: if no inhibitory synapses, P_MIN can be 0.
+    /// Used for PRISM optimization: if no inhibitory synapses, `P_MIN` can be 0.
     pub fn has_inhibitory_synapses(&self) -> bool {
         self.edges.iter().any(|e| e.is_inhibitory)
     }
@@ -402,11 +402,19 @@ mod tests {
     fn test_has_reverse_edge() {
         let (mut g, a, b) = two_node_graph();
         g.add_edge(a, b, 50);
-        let edge_ab = g.edges.iter().find(|e| e.from == a && e.to == b).unwrap();
+        let edge_ab = g
+            .edges
+            .iter()
+            .find(|e| e.from == a && e.to == b)
+            .expect("edge a->b was just added");
         assert!(!g.has_reverse_edge(edge_ab));
 
         g.add_edge(b, a, 50);
-        let edge_ab = g.edges.iter().find(|e| e.from == a && e.to == b).unwrap();
+        let edge_ab = g
+            .edges
+            .iter()
+            .find(|e| e.from == a && e.to == b)
+            .expect("edge a->b was just added");
         assert!(g.has_reverse_edge(edge_ab));
     }
 
@@ -435,7 +443,7 @@ mod tests {
         assert!(!g.is_input(a));
 
         // Set explicit Input role
-        g.node_mut(a).unwrap().role = NodeRole::Input;
+        g.node_mut(a).expect("node a exists, just created").role = NodeRole::Input;
         assert!(g.is_input(a));
         assert!(!g.is_output(a)); // Input role excludes Output
     }
@@ -449,7 +457,7 @@ mod tests {
         assert!(!g.is_output(a));
 
         // Set explicit Output role
-        g.node_mut(a).unwrap().role = NodeRole::Output;
+        g.node_mut(a).expect("node a exists, just created").role = NodeRole::Output;
         assert!(g.is_output(a));
         assert!(!g.is_input(a)); // Output role excludes Input
     }
@@ -467,7 +475,7 @@ mod tests {
         assert!(!g.is_output(c));
 
         // Mark C as Output explicitly
-        g.node_mut(c).unwrap().role = NodeRole::Output;
+        g.node_mut(c).expect("node c exists, just created").role = NodeRole::Output;
         assert!(g.output_neurons().contains(&c));
     }
 }

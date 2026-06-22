@@ -2,7 +2,7 @@
 //!
 //! Generates DTMC models using the paper's weight discretization approach (§7).
 //! Instead of tracking potentials in the raw domain [-500..500], weights are
-//! discretized to [-W, W] and potentials tracked in [P_MIN..P_MAX], giving a
+//! discretized to [-W, W] and potentials tracked in [`P_MIN..P_MAX`], giving a
 //! ~50-170x state reduction per neuron while preserving ALL PCTL properties.
 //!
 //! **Key formulas from the paper:**
@@ -123,26 +123,22 @@ fn write_discretized_constants(
     writeln!(out, "// Discretization parameters (paper sections 3-4)").ok();
     writeln!(
         out,
-        "const int WL = {};       // Weight discretization levels",
-        wl
+        "const int WL = {wl};       // Weight discretization levels"
     )
     .ok();
     writeln!(
         out,
-        "const int T_d = {};      // Discretized threshold (paper section 3.2)",
-        t_d
+        "const int T_d = {t_d};      // Discretized threshold (paper section 3.2)"
     )
     .ok();
     writeln!(
         out,
-        "const double r = {};     // Retention rate — multiplicative leak (paper section 4.2)",
-        retention_rate
+        "const double r = {retention_rate};     // Retention rate — multiplicative leak (paper section 4.2)"
     )
     .ok();
     writeln!(
         out,
-        "const int K = {};        // Number of threshold levels",
-        k
+        "const int K = {k};        // Number of threshold levels"
     )
     .ok();
 
@@ -181,7 +177,7 @@ fn write_discretized_constants(
 }
 
 /// Compute the maximum potential for a neuron in the discretized domain.
-/// P_MAX = T_d + sum of positive (excitatory) discretized weights.
+/// `P_MAX` = `T_d` + sum of positive (excitatory) discretized weights.
 fn compute_p_max(node: &Node, graph: &SnnGraph, config: &PrismGenConfig, t_d: i32) -> i32 {
     let wl = config.weight_levels.clamp(1, 10);
     let incoming = graph.incoming_edges(node.id);
@@ -195,7 +191,7 @@ fn compute_p_max(node: &Node, graph: &SnnGraph, config: &PrismGenConfig, t_d: i3
 }
 
 /// Compute the minimum potential for a neuron in the discretized domain.
-/// P_MIN = sum of negative (inhibitory) discretized weights.
+/// `P_MIN` = sum of negative (inhibitory) discretized weights.
 /// Returns 0 if no inhibitory inputs.
 fn compute_p_min(node: &Node, graph: &SnnGraph, config: &PrismGenConfig) -> i32 {
     let wl = config.weight_levels.clamp(1, 10);
@@ -414,7 +410,7 @@ fn write_input_module(
 
     for input in &inputs {
         let n = &names[&input.id];
-        if let Some(ref cfg) = input.input_config {
+        if let Some(cfg) = &input.input_config {
             let active_count = cfg.generators.iter().filter(|g| g.active).count();
             if active_count == 0 {
                 writeln!(out, "  [tick] true -> (x_{n}' = 0);").ok();
@@ -423,13 +419,13 @@ fn write_input_module(
                     .generators
                     .iter()
                     .find(|g| g.active)
-                    .and_then(|g| {
+                    .map(|g| {
                         use crate::simulation::InputPattern;
                         match &g.pattern {
-                            InputPattern::Random { probability } => Some(*probability),
-                            InputPattern::AlwaysOn => Some(1.0),
-                            InputPattern::AlwaysOff => Some(0.0),
-                            _ => Some(0.5),
+                            InputPattern::Random { probability } => *probability,
+                            InputPattern::AlwaysOn => 1.0,
+                            InputPattern::AlwaysOff => 0.0,
+                            _ => 0.5,
                         }
                     })
                     .unwrap_or(0.5);
@@ -460,7 +456,17 @@ fn write_input_module(
 // Discretized Neuron Module — The core implementation (paper §7)
 // ============================================================================
 
-/// Write a discretized neuron module that tracks exact potential in [P_MIN..P_MAX].
+/// Write a discretized neuron module that tracks exact potential in [`P_MIN..P_MAX`].
+// long but cohesive code generator; splitting hurts readability
+#[expect(
+    clippy::too_many_lines,
+    reason = "cohesive code generator; splitting hurts readability"
+)]
+// boundaries has len k+1 and all indices are in 0..=k by construction (k>=1)
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indices are in-bounds by construction"
+)]
 fn write_discretized_neuron_module(
     out: &mut String,
     node: &Node,
@@ -476,10 +482,8 @@ fn write_discretized_neuron_module(
     // Refractory max state
     let max_state = if model.enable_arp && model.enable_rrp {
         2
-    } else if model.enable_arp {
-        1
     } else {
-        0
+        i32::from(model.enable_arp)
     };
 
     writeln!(out, "module {n}").ok();
@@ -572,8 +576,7 @@ fn write_discretized_neuron_module(
         .ok();
         writeln!(
             out,
-            "  [tick] {state_guard}newP_{n} > {lower} & newP_{n} <= {upper} -> {:.6}:(y_{n}' = 1) & (p_{n}' = 0) + {:.6}:(y_{n}' = 0) & (p_{n}' = newP_{n});",
-            fire_prob, no_fire_prob
+            "  [tick] {state_guard}newP_{n} > {lower} & newP_{n} <= {upper} -> {fire_prob:.6}:(y_{n}' = 1) & (p_{n}' = 0) + {no_fire_prob:.6}:(y_{n}' = 0) & (p_{n}' = newP_{n});"
         )
         .ok();
     }
@@ -652,7 +655,7 @@ fn write_discretized_neuron_module(
                 if fire_prob.abs() < 1e-9 {
                     writeln!(out, "  [tick] s_{n} = 2 & rref_{n} > 0 & newP_{n} > {lower} & newP_{n} <= {upper} -> (y_{n}' = 0) & (p_{n}' = newP_{n}) & (rref_{n}' = rref_{n} - 1);").ok();
                 } else {
-                    writeln!(out, "  [tick] s_{n} = 2 & rref_{n} > 0 & newP_{n} > {lower} & newP_{n} <= {upper} -> {:.6}:(y_{n}' = 0) & (p_{n}' = newP_{n}) & (rref_{n}' = rref_{n} - 1) + {:.6}:(y_{n}' = 1) & (p_{n}' = 0) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);", no_fire_prob, fire_prob).ok();
+                    writeln!(out, "  [tick] s_{n} = 2 & rref_{n} > 0 & newP_{n} > {lower} & newP_{n} <= {upper} -> {no_fire_prob:.6}:(y_{n}' = 0) & (p_{n}' = newP_{n}) & (rref_{n}' = rref_{n} - 1) + {fire_prob:.6}:(y_{n}' = 1) & (p_{n}' = 0) & (aref_{n}' = ARP) & (rref_{n}' = 0) & (s_{n}' = 1);").ok();
                 }
             }
         }

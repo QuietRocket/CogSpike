@@ -78,8 +78,9 @@ impl Env for RoverEnv {
     }
 }
 
-/// An unbounded, online variant of the rover for interactive (frame-stepped) use:
-/// it samples one symbol at a time from the live transition matrix, never `done`,
+/// An unbounded, online variant of the rover for interactive (frame-stepped) use.
+///
+/// It samples one symbol at a time from the live transition matrix, never `done`,
 /// and exposes the current context so the UI can step it indefinitely.
 #[derive(Clone, Debug)]
 pub struct OnlineRover {

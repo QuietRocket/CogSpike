@@ -1,3 +1,8 @@
+#![expect(
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    reason = "egui UI: indexes bounded element lists; long cohesive render fn"
+)]
 use crate::app::{Mode, TemplateApp};
 
 pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
@@ -276,8 +281,7 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
             ui.collapsing("Thresholds (% of P_rth)", |ui| {
                 ui.label(format!(
-                    "Showing {} of 10 levels (set in Model Settings)",
-                    active_threshold_levels
+                    "Showing {active_threshold_levels} of 10 levels (set in Model Settings)"
                 ));
                 egui::Grid::new("thresholds_grid")
                     .num_columns(4)
@@ -555,7 +559,7 @@ fn design_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
                     if ui.button("➕ Add Generator").clicked() {
                         let gen_num = config.generators.len() + 1;
                         config.add_generator(
-                            format!("Gen {}", gen_num),
+                            format!("Gen {gen_num}"),
                             crate::simulation::InputPattern::AlwaysOn,
                         );
                     }
