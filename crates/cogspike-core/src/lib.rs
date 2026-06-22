@@ -4,6 +4,7 @@
 //! (forthcoming) latency-coder / gym library behind the `CogSpike` workbench.
 
 pub mod coder;
+pub mod dvs;
 pub mod gym;
 pub mod learning;
 pub mod model_checker;

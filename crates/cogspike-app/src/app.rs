@@ -44,6 +44,9 @@ pub struct TemplateApp {
     /// Live state of the rover gym (not persisted).
     #[serde(skip)]
     pub(crate) gym: crate::ui::gym::GymState,
+    /// Live state of the event-camera (DVS) view (not persisted).
+    #[serde(skip)]
+    pub(crate) dvs: crate::ui::dvs::DvsState,
     pub(crate) backend: BackendChoice,
     pub(crate) selection: Selection,
     pub(crate) networks: Vec<ProjectNetwork>,
@@ -77,10 +80,17 @@ pub enum Mode {
     Simulate,
     Verify,
     Gym,
+    Events,
 }
 
 impl Mode {
-    pub const ALL: [Self; 4] = [Self::Design, Self::Simulate, Self::Verify, Self::Gym];
+    pub const ALL: [Self; 5] = [
+        Self::Design,
+        Self::Simulate,
+        Self::Verify,
+        Self::Gym,
+        Self::Events,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -88,6 +98,7 @@ impl Mode {
             Self::Simulate => "Simulate",
             Self::Verify => "Verify",
             Self::Gym => "Gym",
+            Self::Events => "Event camera",
         }
     }
 }
@@ -477,6 +488,7 @@ impl Default for TemplateApp {
         Self {
             mode: Mode::Design,
             gym: crate::ui::gym::GymState::default(),
+            dvs: crate::ui::dvs::DvsState::default(),
             backend,
             selection: Selection {
                 network: Some(0),

@@ -14,6 +14,7 @@ pub fn inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
         Mode::Simulate => simulate_inspector(app, ui),
         Mode::Verify => verify_inspector(app, ui),
         Mode::Gym => crate::ui::gym::gym_inspector(app, ui),
+        Mode::Events => crate::ui::dvs::dvs_inspector(app, ui),
     }
 }
 
