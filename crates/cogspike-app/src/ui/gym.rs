@@ -8,11 +8,11 @@
 
 use std::collections::VecDeque;
 
-use cog_spike::coder::{self, LABELS, entropy_bits, entropy_rate, one_hot};
+use cog_spike::coder::{self, LABELS, MAX_SURPRISAL_BITS, entropy_bits, entropy_rate, one_hot};
 use cog_spike::gym::scenario::{self, Scenario};
 use cog_spike::gym::{Agent as _, DeltaAgent, OnlineRover};
 use cog_spike::substrate::{Parity, Substrate as _};
-use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
+use egui_plot::{HLine, Legend, Line, Plot, PlotPoints, VLine};
 
 use crate::app::TemplateApp;
 
@@ -43,6 +43,12 @@ pub struct GymState {
     acc_sum: usize,
     bits_curve: Vec<[f64; 2]>,
     acc_curve: Vec<[f64; 2]>,
+    /// Short EMA of per-symbol surprise; the Boredom-Meter needle reads this.
+    inst_ema: f64,
+    /// `step_count`s at which the world was flipped (drawn as "world changed" markers).
+    flip_marks: Vec<f64>,
+    /// Whether the last flip put the world into its memoryless (s = 0) regime.
+    flipped: bool,
 }
 
 impl Default for GymState {
@@ -68,6 +74,9 @@ impl GymState {
             acc_sum: 0,
             bits_curve: Vec::new(),
             acc_curve: Vec::new(),
+            inst_ema: (scenario::N as f64).log2(),
+            flip_marks: Vec::new(),
+            flipped: false,
         }
     }
 
@@ -97,6 +106,21 @@ impl GymState {
         self.running = running;
     }
 
+    /// Change the hidden world WITHOUT resetting the agent, so it must notice and
+    /// re-learn. Toggles the rover between its sticky regime (`s = S`) and a memoryless
+    /// one (`s = 0`); the learned `q` (tuned to the old regime) is now wrong, surprise
+    /// spikes, and the floor moves to the new world's entropy rate. A regime change also
+    /// re-opens plasticity (surprise-gated learning, à la Pearce-Hall) by resetting the
+    /// learning-rate clock so re-adaptation is visible.
+    fn flip_world(&mut self) {
+        self.flipped = !self.flipped;
+        let new_s = if self.flipped { 0.0 } else { coder::S };
+        self.env.set_s(new_s);
+        self.stickiness = new_s;
+        self.agent.t = 0;
+        self.flip_marks.push(self.step_count as f64);
+    }
+
     fn micro_step(&mut self) {
         let obs = self.env.context();
         let pred = self.agent.act(&obs);
@@ -104,6 +128,11 @@ impl GymState {
         let y = one_hot(step.emitted, self.env.n());
         self.agent.learn(&obs, &y, &pred.q);
         self.step_count += 1;
+
+        // Instantaneous surprise for the Boredom-Meter needle: a short EMA (effective
+        // window ~20 symbols) so it spikes the moment the world changes, unlike the
+        // 4000-symbol mean which only crawls.
+        self.inst_ema += 0.05 * (step.bits - self.inst_ema);
 
         self.bits_window.push_back(step.bits);
         self.bits_sum += step.bits;
@@ -121,9 +150,11 @@ impl GymState {
         }
     }
 
-    /// Advance one frame's worth of micro-steps and append a plot sample.
-    fn advance(&mut self) {
-        for _ in 0..self.steps_per_frame {
+    /// Advance `steps` micro-steps and append a plot sample. `steps` is computed from
+    /// real elapsed time (not the repaint count) so the sim runs at a fixed wall-clock
+    /// rate regardless of frame rate -- e.g. moving the mouse no longer speeds it up.
+    fn advance(&mut self, steps: usize) {
+        for _ in 0..steps {
             self.micro_step();
         }
         let x = self.step_count as f64;
@@ -186,7 +217,12 @@ impl GymState {
 /// The central gym view: money plot + accuracy curve + heatmaps + weight editor.
 pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     if app.gym.running {
-        app.gym.advance();
+        // Step by real elapsed time, not per repaint, so the sim runs at a fixed
+        // wall-clock rate. `steps_per_frame` is the budget at 60 FPS; extra repaints
+        // (e.g. from mouse movement) no longer accelerate the simulation.
+        let dt = f64::from(ui.ctx().input(|i| i.stable_dt)).clamp(0.0, 0.1);
+        let steps = ((app.gym.steps_per_frame as f64) * 60.0 * dt).round() as usize;
+        app.gym.advance(steps.max(1));
         ui.ctx().request_repaint();
     }
 
@@ -210,6 +246,13 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
     let ceiling = app.gym.bayes_ceiling();
     let bits_curve = app.gym.bits_curve.clone();
     let acc_curve = app.gym.acc_curve.clone();
+    let flip_marks = app.gym.flip_marks.clone();
+
+    // The Boredom Meter: instantaneous surprise vs the entropy-rate floor, fenced by
+    // the clip-enforced cap. It parks at BORED once the agent has mastered the world.
+    let time = ui.input(|i| i.time);
+    surprise_needle(ui, app.gym.inst_ema, floor, *MAX_SURPRISAL_BITS, time);
+    ui.add_space(6.0);
 
     Plot::new("bits_plot")
         .height(200.0)
@@ -224,6 +267,13 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
                     .color(egui::Color32::from_rgb(64, 200, 120)),
             );
             pui.hline(HLine::new("marginal H(π)", marginal).color(egui::Color32::GRAY));
+            for &mark in &flip_marks {
+                pui.vline(
+                    VLine::new("world changed", mark)
+                        .color(egui::Color32::from_rgb(230, 110, 90))
+                        .style(egui_plot::LineStyle::dashed_dense()),
+                );
+            }
         });
 
     Plot::new("acc_plot")
@@ -245,8 +295,13 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
     let p_true = app.gym.env.source.p.clone();
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new("learned q = softmax(W)").strong());
-            heatmap(ui, "q_heat", &law);
+            ui.label(egui::RichText::new("learned q — mastery surface").strong());
+            ui.label(
+                egui::RichText::new("blue = predicted (cheap) · red = surprising")
+                    .weak()
+                    .small(),
+            );
+            heatmap_mastery(ui, "q_heat", &law);
         });
         ui.add_space(20.0);
         ui.vertical(|ui| {
@@ -294,6 +349,8 @@ pub fn gym_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             app.gym.reset();
         }
     });
+
+    flip_control(app, ui);
 
     ui.separator();
     ui.label(egui::RichText::new("Parameters").strong());
@@ -346,6 +403,40 @@ pub fn gym_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
 
     ui.separator();
     parity_badge(ui, app.gym.agent.substrate.parity());
+}
+
+/// The "Flip the world" control (only meaningful for scenarios with memory).
+fn flip_control(app: &mut TemplateApp, ui: &mut egui::Ui) {
+    if !app.gym.scenario.has_stickiness() {
+        return;
+    }
+    ui.add_space(4.0);
+    let flip_label = if app.gym.flipped {
+        "Restore world (sticky)"
+    } else {
+        "Flip the world (memoryless)"
+    };
+    if ui
+        .add(
+            egui::Button::new(
+                egui::RichText::new(flip_label)
+                    .strong()
+                    .color(egui::Color32::WHITE),
+            )
+            .fill(egui::Color32::from_rgb(150, 70, 80)),
+        )
+        .clicked()
+    {
+        app.gym.flip_world();
+    }
+    ui.label(
+        egui::RichText::new(
+            "change a hidden rule the agent was never told — watch the needle spike, \
+             then watch it re-learn",
+        )
+        .weak()
+        .small(),
+    );
 }
 
 fn stat(ui: &mut egui::Ui, name: &str, value: String) {
@@ -451,4 +542,108 @@ fn text_color(v: f64) -> egui::Color32 {
     } else {
         egui::Color32::from_gray(220)
     }
+}
+
+/// The Boredom-Meter gauge: instantaneous surprise (`bits`) on a `[0, cap]` scale with
+/// the entropy-rate floor marked. Reads BORED (green) once surprise settles near the
+/// floor, SURPRISED (pulsing red) when it spikes. The fill can never reach the right
+/// wall: that wall is the clip-enforced cap (`-log2(q_min)` = bounded latency).
+fn surprise_needle(ui: &mut egui::Ui, bits: f64, floor: f64, cap: f64, time: f64) {
+    let h = 56.0_f32;
+    let w = ui.available_width().min(620.0);
+    let (rect, _resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(4),
+        egui::Color32::from_rgb(22, 24, 30),
+    );
+
+    let cap = cap.max(1e-6);
+    let frac = (bits / cap).clamp(0.0, 1.0) as f32;
+    let bored = (bits - floor).max(0.0) < 0.4;
+
+    let fill_color = if bored {
+        egui::Color32::from_rgb(70, 190, 120)
+    } else {
+        let pulse = (0.5 + 0.5 * (time * 6.0).sin()) as f32;
+        let g = (60.0 + 50.0 * (1.0 - pulse)) as u8;
+        egui::Color32::from_rgb(230, g, 70)
+    };
+    let fill = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * frac, rect.height()));
+    painter.rect_filled(fill, egui::CornerRadius::same(4), fill_color);
+
+    // entropy-rate floor tick ("fully mastered" surprise level)
+    let fx = rect.left() + rect.width() * (floor / cap).clamp(0.0, 1.0) as f32;
+    painter.line_segment(
+        [egui::pos2(fx, rect.top()), egui::pos2(fx, rect.bottom())],
+        egui::Stroke::new(1.5, egui::Color32::from_rgb(140, 220, 170)),
+    );
+
+    let (word, word_color) = if bored {
+        ("BORED", egui::Color32::from_rgb(150, 230, 180))
+    } else {
+        ("SURPRISED", egui::Color32::from_rgb(255, 190, 160))
+    };
+    painter.text(
+        egui::pos2(rect.left() + 12.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        format!("{word}    {bits:.2} bits surprise"),
+        egui::FontId::proportional(18.0),
+        word_color,
+    );
+    painter.text(
+        egui::pos2(rect.right() - 8.0, rect.top() + 8.0),
+        egui::Align2::RIGHT_TOP,
+        format!("clip-enforced cap {cap:.1} b · latency <= 0.266 s"),
+        egui::FontId::monospace(10.0),
+        egui::Color32::from_rgb(190, 130, 130),
+    );
+    painter.text(
+        egui::pos2(fx + 3.0, rect.bottom() - 7.0),
+        egui::Align2::LEFT_BOTTOM,
+        "floor",
+        egui::FontId::monospace(9.0),
+        egui::Color32::from_rgb(140, 220, 170),
+    );
+}
+
+/// Like [`heatmap`] but coloured by per-cell surprisal `-log2(q)` (hot = surprising,
+/// cold = mastered) so the learned matrix reads as a world-model "mastery surface".
+fn heatmap_mastery(ui: &mut egui::Ui, id: &str, m: &[Vec<f64>]) {
+    let cell = 36.0_f32;
+    egui::Grid::new(id).spacing([3.0, 3.0]).show(ui, |ui| {
+        ui.label("");
+        for lab in LABELS {
+            ui.label(egui::RichText::new(lab).strong());
+        }
+        ui.end_row();
+        for (i, row) in m.iter().enumerate() {
+            ui.label(egui::RichText::new(LABELS.get(i).copied().unwrap_or("?")).strong());
+            for &v in row {
+                let (rect, _resp) =
+                    ui.allocate_exact_size(egui::vec2(cell, cell), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, egui::CornerRadius::same(2), surprisal_color(v));
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{v:.2}"),
+                    egui::FontId::monospace(11.0),
+                    egui::Color32::from_gray(235),
+                );
+            }
+            ui.end_row();
+        }
+    });
+}
+
+/// Map a probability `v` to a hot/cold colour by its surprisal `-log2(v)`: high `v`
+/// (cheap, mastered) -> cold blue; low `v` (surprising) -> hot red. Normalised by
+/// `log2(N) = 2` bits (the uniform-predictor surprise).
+fn surprisal_color(v: f64) -> egui::Color32 {
+    let bits = -v.clamp(1e-6, 1.0).log2();
+    let t = (bits / 2.0).clamp(0.0, 1.0) as f32; // 0 = mastered, 1 = surprising
+    let lerp = |a: f32, b: f32| (a + (b - a) * t) as u8;
+    egui::Color32::from_rgb(lerp(50.0, 210.0), lerp(110.0, 70.0), lerp(210.0, 55.0))
 }

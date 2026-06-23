@@ -18,8 +18,8 @@ pub mod metrics;
 pub mod source;
 
 pub use constants::{
-    DT, H_MARGINAL, H_RATE, LABELS, LAMBDA, LEARNED_REF, LN2, MUTUAL_INFO, PI, RHEOBASE_CEILING, S,
-    SEED, TAU_RC, THETA,
+    DT, H_MARGINAL, H_RATE, LABELS, LAMBDA, LEARNED_REF, LN2, MAX_SURPRISAL_BITS, MUTUAL_INFO, PI,
+    Q_CLIP_HI, Q_CLIP_LO, RHEOBASE_CEILING, S, SEED, TAU_RC, THETA,
 };
 pub use information::{
     cross_entropy_bits, cross_entropy_rate, entropy_bits, entropy_rate, kl_bits, learned_matrix,

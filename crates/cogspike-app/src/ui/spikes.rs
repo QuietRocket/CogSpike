@@ -125,7 +125,12 @@ fn drive_and_spike(q: f64) -> (f64, f64) {
 /// The central spike-latency view: the four-neuron race to threshold.
 pub fn spikes_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     if app.spikes.running {
-        for _ in 0..app.spikes.steps_per_frame.max(1) {
+        // Step by real elapsed time, not per repaint, so the learner converges at a
+        // fixed wall-clock rate (mouse movement no longer accelerates it). The view
+        // nominally repaints every 80 ms (12.5 FPS); `steps_per_frame` is that budget.
+        let dt = f64::from(ui.ctx().input(|i| i.stable_dt)).clamp(0.0, 0.1);
+        let steps = ((app.spikes.steps_per_frame as f64) * 12.5 * dt).round() as usize;
+        for _ in 0..steps.max(1) {
             app.spikes.step();
         }
         ui.ctx().request_repaint_after(Duration::from_millis(80));

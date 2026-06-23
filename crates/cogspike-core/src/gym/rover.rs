@@ -4,7 +4,7 @@
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 
-use crate::coder::{LAMBDA, RoverSource, one_hot};
+use crate::coder::{LAMBDA, Q_CLIP_HI, Q_CLIP_LO, RoverSource, one_hot};
 
 use super::{Env, Prediction, StepOut};
 
@@ -56,7 +56,14 @@ impl Env for RoverEnv {
             .get(self.t)
             .copied()
             .expect("step is called within the horizon");
-        let q_emit = prediction.q.get(emitted).copied().unwrap_or(0.0);
+        // The encoder cannot represent q outside [Q_CLIP_LO, Q_CLIP_HI], so per-symbol
+        // surprisal is bounded by -log2(Q_CLIP_LO) = MAX_SURPRISAL_BITS (clip-enforced).
+        let q_emit = prediction
+            .q
+            .get(emitted)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(Q_CLIP_LO, Q_CLIP_HI);
         let bits = -q_emit.log2();
         let reward = -self.lambda * bits;
         let correct = prediction.decoded == Some(emitted);
@@ -132,7 +139,14 @@ impl OnlineRover {
     /// Emit the next symbol and score the agent's `prediction` by surprisal.
     pub fn step(&mut self, prediction: &Prediction) -> StepOut {
         let emitted = self.source.sample_next(self.prev, &mut self.rng);
-        let q_emit = prediction.q.get(emitted).copied().unwrap_or(0.0);
+        // Clip-enforced bound: q is clamped to [Q_CLIP_LO, Q_CLIP_HI], so per-symbol
+        // surprisal never exceeds -log2(Q_CLIP_LO) = MAX_SURPRISAL_BITS.
+        let q_emit = prediction
+            .q
+            .get(emitted)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(Q_CLIP_LO, Q_CLIP_HI);
         let bits = -q_emit.log2();
         let reward = -self.lambda * bits;
         let correct = prediction.decoded == Some(emitted);
@@ -145,5 +159,48 @@ impl OnlineRover {
             emitted,
             done: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::coder::MAX_SURPRISAL_BITS;
+
+    #[test]
+    fn surprisal_is_clip_bounded() {
+        // A maximally-wrong prediction: q -> 0 for whichever symbol the source emits.
+        // The q-clip must cap the surprisal at -log2(Q_CLIP_LO) = MAX_SURPRISAL_BITS.
+        let mut env = OnlineRover::paper(7);
+        let pred = Prediction {
+            q: vec![1e-12; env.n()],
+            decoded: None,
+        };
+        for _ in 0..32 {
+            let out = env.step(&pred);
+            assert!(
+                out.bits <= *MAX_SURPRISAL_BITS + 1e-9,
+                "bits {} exceeded clip-enforced cap {}",
+                out.bits,
+                *MAX_SURPRISAL_BITS
+            );
+        }
+        // the cap is the expected ~13.29 bits (= -log2(1e-4))
+        assert!((*MAX_SURPRISAL_BITS - 13.287_712_379_549_45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn typical_surprisal_is_unaffected_by_the_clip() {
+        // A well-inside-range prediction is not perturbed by the clamp.
+        let mut env = OnlineRover::paper(7);
+        let pred = Prediction {
+            q: vec![0.25; env.n()],
+            decoded: None,
+        };
+        let out = env.step(&pred);
+        assert!(
+            (out.bits - 2.0).abs() < 1e-12,
+            "uniform q -> log2(4) = 2 bits"
+        );
     }
 }

@@ -53,3 +53,11 @@ pub static H_RATE: LazyLock<f64> = LazyLock::new(|| entropy_rate(&momentum_chain
 
 /// Mutual information `I = H_MARGINAL - H_RATE = 0.7718` bits/symbol.
 pub static MUTUAL_INFO: LazyLock<f64> = LazyLock::new(|| *H_MARGINAL - *H_RATE);
+
+/// Bounded worst-case per-symbol surprisal `-log2(Q_CLIP_LO) = 13.2877` bits.
+///
+/// Because the encoder cannot represent a probability below `Q_CLIP_LO`, no symbol can
+/// ever cost more than this many bits; on the idealized substrate that is a bounded
+/// first-spike latency `t_max = LAMBDA * 13.2877 = 0.2658 s` (the latency neuron always
+/// fires within `t_max`). A clip-enforced a-priori bound -- not a PRISM/PCTL machine-check.
+pub static MAX_SURPRISAL_BITS: LazyLock<f64> = LazyLock::new(|| -Q_CLIP_LO.log2());
