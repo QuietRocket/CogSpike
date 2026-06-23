@@ -255,6 +255,9 @@ pub struct DvsFrame {
     pub on_resid: Row,
     /// Surviving OFF residual.
     pub off_resid: Row,
+    /// Whether this frame was hallucinated in open-loop dream mode (raw = the model's
+    /// own prediction, residual identically zero).
+    pub is_dream: bool,
 }
 
 /// An unbounded, frame-stepped event camera for the interactive view: a bar moves at a
@@ -283,6 +286,16 @@ pub struct DvsScene {
     prev_on: Row,
     prev_off: Row,
     rng: StdRng,
+    // --- open-loop dream bookkeeping (inert unless dream_step() is driven) ---
+    in_dream: bool,
+    /// Velocity the predictor believed at dream onset; the dream glides at this.
+    dream_vel: i64,
+    /// Where the dreamer thinks the bar is.
+    dreamed_pos: i64,
+    prev_dream_bright: Row,
+    frames_dreamt: u64,
+    /// Circular pixel distance between the dreamed bar and the (unseen) real one.
+    divergence: f64,
 }
 
 /// Frames retained in the live raster window.
@@ -308,6 +321,12 @@ impl DvsScene {
             prev_on: vec![0u8; p],
             prev_off: vec![0u8; p],
             rng: StdRng::seed_from_u64(seed),
+            in_dream: false,
+            dream_vel: 0,
+            dreamed_pos: 0,
+            prev_dream_bright: vec![0u8; p],
+            frames_dreamt: 0,
+            divergence: 0.0,
         }
     }
 
@@ -380,6 +399,115 @@ impl DvsScene {
             off_raw,
             on_resid,
             off_resid,
+            is_dream: false,
+        });
+        if self.frames.len() > DVS_WINDOW {
+            self.frames.pop_front();
+        }
+    }
+
+    /// Where the dreamer currently believes the bar is (its hallucinated brightness).
+    #[must_use]
+    pub fn dreamed_brightness(&self) -> &[u8] {
+        &self.prev_dream_bright
+    }
+
+    /// Circular pixel distance between the dreamed bar and the (unseen) real one.
+    #[must_use]
+    pub fn divergence(&self) -> f64 {
+        self.divergence
+    }
+
+    /// Frames elapsed since the current dream began.
+    #[must_use]
+    pub fn frames_dreamt(&self) -> u64 {
+        self.frames_dreamt
+    }
+
+    /// Whether the scene is currently dreaming (open-loop, sensory input cut).
+    #[must_use]
+    pub fn in_dream(&self) -> bool {
+        self.in_dream
+    }
+
+    /// Enter open-loop dreaming: freeze the believed velocity and seed the dreamed bar at
+    /// the agent's current best estimate of the bar's position.
+    pub fn begin_dream(&mut self) {
+        self.in_dream = true;
+        self.dream_vel = self.prev_vel; // the velocity the lag-predictor actually uses
+        self.dreamed_pos = self.pos;
+        self.prev_dream_bright = self.prev_bright.clone();
+        self.frames_dreamt = 0;
+        self.divergence = 0.0;
+    }
+
+    /// Leave dreaming and resume observing the real world.
+    pub fn wake(&mut self) {
+        self.in_dream = false;
+    }
+
+    /// Advance one DREAM frame. The real bar keeps moving (ground truth the agent can no
+    /// longer see); the dreamed bar glides at the frozen believed velocity. The emitted
+    /// frame IS the dreamer's own prediction, so the residual is identically zero
+    /// ("nothing surprises a dreamer"). The circular distance between the dreamed and
+    /// real bar is accumulated for the overlay.
+    pub fn dream_step(&mut self) {
+        use rand::Rng as _;
+
+        // (1) the REAL world advances exactly as in step() (jitter + base velocity), but
+        //     the dreamer no longer observes it.
+        let mut real_vel = self.velocity;
+        if self.jitter > 0.0 && self.rng.r#gen::<f64>() < self.jitter {
+            real_vel += if self.rng.r#gen::<bool>() { 1 } else { -1 };
+        }
+        self.pos = (self.pos + real_vel).rem_euclid(self.p as i64);
+        let real_bright = bar_brightness_frame(self.pos, self.p, self.w);
+
+        // (2) the DREAMED world: pure extrapolation at the frozen belief, no observation.
+        self.dreamed_pos = (self.dreamed_pos + self.dream_vel).rem_euclid(self.p as i64);
+        let dream_bright = bar_brightness_frame(self.dreamed_pos, self.p, self.w);
+
+        // (3) emit the dreamed events (diff of the dreamed brightness) as this frame's raw.
+        let on_raw: Row = dream_bright
+            .iter()
+            .zip(&self.prev_dream_bright)
+            .map(|(&c, &pv)| u8::from(c > pv))
+            .collect();
+        let off_raw: Row = dream_bright
+            .iter()
+            .zip(&self.prev_dream_bright)
+            .map(|(&c, &pv)| u8::from(c < pv))
+            .collect();
+
+        // (4) residual is identically zero: the predictor predicts its own dream perfectly.
+        let on_resid = vec![0u8; self.p];
+        let off_resid = vec![0u8; self.p];
+
+        // (5) raw still accrues; residual does not -> the ratio inflates, a tell that the
+        //     compressor has stopped learning (it only sees its own predictions).
+        self.raw_total +=
+            total(std::slice::from_ref(&on_raw)) + total(std::slice::from_ref(&off_raw));
+
+        // (6) divergence: minimal circular distance between the dreamed and real positions.
+        let p = self.p as i64;
+        let gap = (self.dreamed_pos - self.pos).rem_euclid(p);
+        self.divergence = gap.min(p - gap) as f64;
+
+        // (7) roll both worlds forward; keep prev_* coherent so waking is clean (the first
+        //     real step() after waking legitimately shows a big surprise burst).
+        self.prev_dream_bright = dream_bright;
+        self.prev_bright = real_bright;
+        self.prev_on = on_raw.clone();
+        self.prev_off = off_raw.clone();
+        self.prev_vel = self.dream_vel;
+        self.frames_dreamt += 1;
+
+        self.frames.push_back(DvsFrame {
+            on_raw,
+            off_raw,
+            on_resid,
+            off_resid,
+            is_dream: true,
         });
         if self.frames.len() > DVS_WINDOW {
             self.frames.pop_front();
@@ -467,5 +595,62 @@ mod tests {
         assert_eq!(roll(&[1, 0, 0, 0], 1), vec![0, 1, 0, 0]);
         assert_eq!(roll(&[1, 0, 0, 0], -1), vec![0, 0, 0, 1]);
         assert_eq!(roll(&[1, 2, 3, 4], 2), vec![3, 4, 1, 2]);
+    }
+
+    #[test]
+    fn dream_has_zero_residual_and_peels_away_on_reversal() {
+        let mut s = DvsScene::new(7);
+        s.velocity = 2;
+        s.jitter = 0.0;
+        for _ in 0..10 {
+            s.step();
+        }
+        assert_eq!(s.prev_vel, 2, "predictor believes +2 px/frame");
+
+        s.begin_dream();
+        s.velocity = -2; // the unseen world reverses while the agent dreams
+        let resid_before = s.resid_total;
+        let mut max_div = 0.0_f64;
+        for k in 1..=20 {
+            s.dream_step();
+            let f = s.frames.back().expect("a dream frame");
+            assert!(f.is_dream, "dream frame is flagged");
+            assert!(
+                f.on_resid.iter().all(|&b| b == 0) && f.off_resid.iter().all(|&b| b == 0),
+                "nothing surprises a dreamer: residual is identically zero"
+            );
+            assert_eq!(s.frames_dreamt(), k);
+            max_div = max_div.max(s.divergence());
+        }
+        assert_eq!(
+            s.resid_total, resid_before,
+            "no learning signal accrues in a dream"
+        );
+        // dream goes +2, reality goes -2 => 4 px/frame apart; on a 24-ring the circular
+        // distance climbs to near its maximum (12) before wrapping.
+        assert!(
+            max_div >= 8.0,
+            "dream provably peeled away from reality (max divergence {max_div})"
+        );
+    }
+
+    #[test]
+    fn dream_glides_at_frozen_belief_not_the_live_slider() {
+        let mut s = DvsScene::new(7);
+        s.velocity = 1;
+        s.jitter = 0.0;
+        for _ in 0..5 {
+            s.step();
+        }
+        s.begin_dream();
+        assert_eq!(s.dream_vel, 1, "belief frozen at +1 at onset");
+        let before = s.dreamed_pos;
+        s.velocity = -3; // change the (unseen) world AFTER the dream began
+        s.dream_step();
+        assert_eq!(
+            (s.dreamed_pos - before).rem_euclid(s.p as i64),
+            1,
+            "the dream still glides at its frozen +1 belief, ignoring the -3 slider"
+        );
     }
 }
