@@ -124,3 +124,84 @@ model). No PRISM (formal proof dropped from this run's critical path per the use
 - **P2 / scenarios** floors/ceilings are closed-form, asserted to ≤ 1e-9 in unit tests.
 - **Idealized coder** (pre-existing) is parity-tested to ≤ 1e-12 vs the numpy golden
   (`tests/coder_parity.rs`).
+
+---
+
+# "Agent learning its world" demos (D1–D3)
+
+Three demos that make the existing machinery *read as an autonomous agent learning its
+world*. Each is an atomic, green-gated commit on `lazy-gym`. The **logic** of each is pinned
+by unit tests; `./check.sh` is fully green (native + wasm32 + fmt + clippy `-D warnings` +
+tests + doctests + trunk build). The **live visual** is served at `:8080` (hard-reload to
+bypass the PWA cache) — the wasm loads with no panic (console clean of app errors).
+
+## D0 — clip-enforced surprise bound (shipped with D1) · commit `1d4d954` · VERIFIED
+
+**Claim.** The previously-dead `Q_CLIP_LO = 1e-4` is now wired into the live `bits` path
+(`gym/rover.rs`), so per-symbol surprisal is bounded by `-log2(Q_CLIP_LO) = 13.2877` bits =
+a `0.266 s` first-spike-latency cap on the idealized substrate. An **honest clip-enforced
+bound**, not a PRISM/PCTL machine-check (that stays reserved for the spike view).
+
+**Oracle (`gym/rover.rs` tests).** `surprisal_is_clip_bounded`: a maximally-wrong prediction
+(q → 0) yields `bits ≤ 13.2877 + 1e-9` over 32 steps. `typical_surprisal_is_unaffected_by_the_clip`:
+uniform `q` → exactly 2 bits. The clip is inactive in normal operation, so **`coder_parity`
+(≤1e-12), `paper_benchmark`, and `rover_episode` convergence are unchanged** (re-run green).
+
+**Re-verify.** `cargo test -p cog_spike --lib rover::`.
+
+## D1 — Boredom Meter (`Mode::Gym`) · commit `1d4d954` · VERIFIED (logic) / live-served
+
+**Claim.** The agent *gets bored when it understands, flinches when you change its world, and
+re-learns* — fenced by the bound. An instantaneous surprise needle (short-EMA bits) reads
+**BORED** (green) near the floor / **SURPRISED** (pulsing red) on a jump; the learned-q
+heatmap is recolored as a hot→cold **mastery surface** (`-log2 q`); a **Flip the world** button
+switches the hidden rover regime (sticky `s=0.7` ↔ memoryless `s=0`) WITHOUT resetting the
+agent (re-warms `agent.t` — surprise-gated plasticity), dropping a "world changed" `VLine`.
+
+**Re-verify.** In-browser: Gym → Run → needle parks BORED, heatmap cools → click *Flip the
+world* → needle slams SURPRISED, VLine drops, curve climbs off the floor then re-descends to
+the new floor as the heatmap re-cools. Switch source to **Uniform** → never bored.
+
+## D2 — Frozen-vs-Learning control (`Mode::Gym`) · commit `f5bd44e` · VERIFIED
+
+**Claim.** A frozen twin (`eta0 = 0`, never learns), scored on the SAME stream, stays at
+exactly `log2(N) = 2` bits; the gap controls for source difficulty (the learner's gain is
+learning, not luck). Gray "frozen (no learning)" line beside the blue learner; a "bits saved
+vs frozen" odometer accumulates the gap.
+
+**Oracle (`ui/gym.rs` test).** `learner_beats_frozen_baseline`: after 60k steps the **frozen
+mean is exactly 2.0 bits** (±1e-9), the **learner is < 1.5 bits**, and **> 5000 bits** have
+been banked. **Observed in test:** all three hold.
+
+**Re-verify.** `cargo test -p cogspike-app`. In-browser: the gray line stays flat at 2.0 while
+the blue line dives; the "bits saved vs frozen" stat climbs.
+
+## D3 — Dreaming Camera (`Mode::Events`) · commit `b2cc2e3` · VERIFIED (logic) / live-served
+
+**Claim.** A **CUT SENSORY INPUT** toggle runs the predictor open-loop: it stops observing and
+glides its own expectation forward at the velocity believed at dream onset. The dreamed bar
+(violet) is drawn over the real, unseen bar (faint ghost); flipping the velocity slider makes
+the real bar reverse while the dream sails on, *confidently wrong*. The dreamed events ARE the
+prediction, so the **residual is identically zero** ("nothing surprises a dreamer") — the
+residual raster goes black.
+
+**Oracle (`dvs.rs` tests).** `dream_has_zero_residual_and_peels_away_on_reversal`: every dream
+frame's residual is all-zero, `resid_total` is unchanged (no learning signal), and after a
+reversal the circular divergence reaches **≥ 8 px** (of a 12-px max on the 24-ring).
+`dream_glides_at_frozen_belief_not_the_live_slider`: after `begin_dream`, the dreamed bar
+advances by the frozen `+1` belief even when the live slider is set to `-3`. **`dvs_parity`
+(byte-exact, raw 98 → residual 12) is unaffected** by the added `is_dream` field.
+
+**Re-verify.** `cargo test -p cog_spike --lib dvs::`. In-browser: Event camera → check *CUT
+SENSORY INPUT* → the residual raster goes black and a "DREAMING" banner shows the drift; move
+the velocity slider and watch the violet dream peel away from the ghost real bar.
+
+## Frame-rate decoupling (user-reported) · commits `1d4d954`, `b2cc2e3` · VERIFIED (logic)
+
+**Claim.** The gym, spike, and event-camera views stepped a fixed amount *per repaint*, so
+extra repaints (mouse movement) sped up the animation. All three now step by **real elapsed
+time** (`input.stable_dt`, clamped): gym/spikes scale steps by `dt`, the event camera drains a
+`0.07 s` accumulator. Animation rate is now mouse-independent.
+
+**Re-verify.** In-browser: Run any live view and wiggle the mouse — the sim speed no longer
+changes.
