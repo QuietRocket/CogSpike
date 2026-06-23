@@ -8,4 +8,4 @@ cargo fmt --all -- --check
 cargo clippy --quiet --workspace --all-targets --all-features --  -D warnings -W clippy::all
 cargo test --quiet --workspace --all-targets --all-features
 cargo test --quiet --workspace --doc
-trunk build
+(cd crates/cogspike-app && trunk build)
