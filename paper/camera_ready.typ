@@ -301,7 +301,7 @@ variables.
 The _weighted contribution_ for neuron $n$ with discretized incoming weights
 ${w_1^d, ..., w_m^d}$ replaces the binary class evolution of the original
 quotient model:
-$C_n = sum_(i=1)^m w_i^d dot.c y_i$ <eq-contribution>
+$ C_n = sum_(i=1)^m w_i^d dot.c y_i $ <eq-contribution>
 where $y_i in {0,1}$ is the spike output of presynaptic neuron $i$ and $m$ is
 the fan-in.
 

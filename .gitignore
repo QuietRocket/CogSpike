@@ -25,6 +25,17 @@ paper/ieee/*.log
 paper/ieee/*.out
 paper/ieee/missfont.log
 
+# LaTeX build artifacts (LNCS camera-ready — keep .tex/.bib/.cls/.bst/figs, drop build output)
+paper/lncs/*.pdf
+paper/lncs/*.aux
+paper/lncs/*.bbl
+paper/lncs/*.blg
+paper/lncs/*.log
+paper/lncs/*.out
+paper/lncs/missfont.log
+# Submission package snapshot (regenerable bundle)
+paper/lncs/icann2026_686_source.zip
+
 # Internal notes (not for version control)
 notes/
 
