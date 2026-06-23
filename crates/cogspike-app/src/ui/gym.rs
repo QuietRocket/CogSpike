@@ -271,8 +271,9 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
     if app.gym.running {
         // Step by real elapsed time, not per repaint, so the sim runs at a fixed
         // wall-clock rate. `steps_per_frame` is the budget at 60 FPS; extra repaints
-        // (e.g. from mouse movement) no longer accelerate the simulation.
-        let dt = f64::from(ui.ctx().input(|i| i.stable_dt)).clamp(0.0, 0.1);
+        // (e.g. from mouse movement) no longer accelerate the simulation. Use
+        // `unstable_dt` (TRUE elapsed time) -- `stable_dt` can lock to the refresh rate.
+        let dt = f64::from(ui.ctx().input(|i| i.unstable_dt)).clamp(0.0, 0.1);
         let steps = ((app.gym.steps_per_frame as f64) * 60.0 * dt).round() as usize;
         app.gym.advance(steps.max(1));
         ui.ctx().request_repaint();

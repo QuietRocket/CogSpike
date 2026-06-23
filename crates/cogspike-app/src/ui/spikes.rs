@@ -11,8 +11,8 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use cog_spike::coder::{
-    LABELS, LAMBDA, RHEOBASE_CEILING, TAU_RC, THETA, analytic_latency_ideal, calibration_drive,
-    nengo_first_spike_time, one_hot,
+    LABELS, LAMBDA, RHEOBASE_CEILING, TAU_RC, THETA, calibration_drive, nengo_first_spike_time,
+    one_hot,
 };
 use cog_spike::gym::scenario::{self, Scenario};
 use cog_spike::gym::{Agent as _, DeltaAgent, OnlineRover};
@@ -22,6 +22,8 @@ use egui_plot::{HLine, Legend, Line, Plot, PlotPoints, Points};
 use crate::app::TemplateApp;
 
 const WINDOW: usize = 2000;
+const GREEN: Color32 = Color32::from_rgb(90, 210, 140);
+const RED: Color32 = Color32::from_rgb(235, 120, 110);
 /// Per-neuron ramp colours (U/D/L/R).
 const NEURON_COLORS: [Color32; 4] = [
     Color32::from_rgb(90, 170, 255),
@@ -125,25 +127,26 @@ fn drive_and_spike(q: f64) -> (f64, f64) {
 /// The central spike-latency view: the four-neuron race to threshold.
 pub fn spikes_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     if app.spikes.running {
-        // Step by real elapsed time, not per repaint, so the learner converges at a
-        // fixed wall-clock rate (mouse movement no longer accelerates it). The view
-        // nominally repaints every 80 ms (12.5 FPS); `steps_per_frame` is that budget.
-        let dt = f64::from(ui.ctx().input(|i| i.stable_dt)).clamp(0.0, 0.1);
+        // Step by real elapsed time, not per repaint, so the learner converges at a fixed
+        // wall-clock rate (mouse movement no longer accelerates it). Use `unstable_dt`
+        // (TRUE elapsed time): in reactive repaint mode `stable_dt` is locked to the
+        // refresh interval, so mouse-driven repaints would over-count. The view nominally
+        // repaints every 80 ms (12.5 FPS); `steps_per_frame` is that per-frame budget.
+        let dt = f64::from(ui.ctx().input(|i| i.unstable_dt)).clamp(0.0, 0.1);
         let steps = ((app.spikes.steps_per_frame as f64) * 12.5 * dt).round() as usize;
-        for _ in 0..steps.max(1) {
+        for _ in 0..steps {
             app.spikes.step();
         }
         ui.ctx().request_repaint_after(Duration::from_millis(80));
     }
 
-    ui.heading("Spike latency — surprisal is the wait for the first spike");
+    ui.heading("Spike latency — the wait until firing IS the surprise");
     ui.label(
         RichText::new(
-            "Each symbol is a neuron. Its membrane is driven so that the more the coder \
-             EXPECTS that symbol (higher q), the harder it is driven and the SOONER it \
-             fires. The first neuron to cross threshold is the prediction; the time it \
-             takes is the code length t*(q) = -lambda log2 q. Watch the winner pull ahead \
-             as the coder learns.",
+            "Each symbol is a neuron. The more the coder expects a symbol (higher q), the \
+             harder its neuron is driven, so the sooner it fires. The first to fire is the \
+             coder's guess; the wait until it fires equals the code length -log2 q (bits). \
+             Expected -> fires fast -> cheap;  surprising -> fires late -> expensive.",
         )
         .weak(),
     );
@@ -151,6 +154,25 @@ pub fn spikes_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Contex
 
     let q = app.spikes.q.clone();
     let races: Vec<(f64, f64)> = q.iter().map(|&qi| drive_and_spike(qi)).collect();
+
+    result_banner(ui, &q, &races, app.spikes.decoded, app.spikes.emitted);
+    ui.add_space(10.0);
+    ui.label(
+        RichText::new("time until each neuron fires  —  shorter = more expected = fewer bits")
+            .small()
+            .weak(),
+    );
+    latency_bars(ui, &q, &races, app.spikes.decoded, app.spikes.emitted);
+    ui.add_space(14.0);
+
+    ui.label(
+        RichText::new(
+            "Under the hood: each neuron's membrane ramps to the threshold θ; a stronger \
+             drive (higher q) reaches it sooner. The first dot to touch θ is the guess.",
+        )
+        .small()
+        .weak(),
+    );
     let window_ms = races
         .iter()
         .map(|&(_, t)| t)
@@ -160,7 +182,7 @@ pub fn spikes_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Contex
         .clamp(10.0, 80.0);
 
     Plot::new("spike_race")
-        .height(280.0)
+        .height(200.0)
         .legend(Legend::default())
         .include_y(0.0)
         .include_y(THETA * 1.15)
@@ -198,54 +220,151 @@ pub fn spikes_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                 }
             }
         });
-    ui.label(RichText::new("x = time (ms) · earliest spike = decoded symbol · no crossing = effectively infinite surprise").small().weak());
-    ui.separator();
-
-    draw_table(ui, &q, &races, app.spikes.decoded, app.spikes.emitted);
+    ui.label(
+        RichText::new("x = time (ms); first dot to reach θ = the coder's guess")
+            .small()
+            .weak(),
+    );
 }
 
-/// The per-symbol breakdown: predicted `q`, first-spike latency (= surprisal), and tags.
-fn draw_table(
+/// The plain-language punchline: what the coder guessed, how fast / cheap, vs what came.
+fn result_banner(
     ui: &mut egui::Ui,
     q: &[f64],
     races: &[(f64, f64)],
     decoded: Option<usize>,
     emitted: usize,
 ) {
-    egui::Grid::new("spike_table")
-        .striped(true)
-        .spacing([18.0, 4.0])
+    let actual = LABELS.get(emitted).copied().unwrap_or("?");
+    let (text, color) = match decoded {
+        Some(e) => {
+            let guess = LABELS.get(e).copied().unwrap_or("?");
+            let qe = q.get(e).copied().unwrap_or(0.0);
+            let t_ms = races.get(e).map_or(f64::INFINITY, |&(_, t)| t) * 1000.0;
+            let bits = -qe.clamp(1e-4, 0.999).log2();
+            if Some(emitted) == decoded {
+                (
+                    format!(
+                        "Guessed {guess} (q={qe:.2}) — fired in {t_ms:.1} ms = {bits:.2} bits.   \
+                         Actual: {actual}.   MATCHED — paid only {bits:.2} bits."
+                    ),
+                    GREEN,
+                )
+            } else {
+                let abits = -q
+                    .get(emitted)
+                    .copied()
+                    .unwrap_or(1.0)
+                    .clamp(1e-4, 0.999)
+                    .log2();
+                (
+                    format!(
+                        "Guessed {guess} (q={qe:.2}).   Actual: {actual}.   \
+                         SURPRISED — the true symbol cost {abits:.2} bits."
+                    ),
+                    RED,
+                )
+            }
+        }
+        None => ("(no neuron fired — silent)".to_owned(), Color32::GRAY),
+    };
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.16))
+        .inner_margin(8.0)
+        .corner_radius(4.0)
         .show(ui, |ui| {
-            for h in ["symbol", "q (predicted)", "latency = surprisal", ""] {
-                ui.label(RichText::new(h).strong());
-            }
-            ui.end_row();
-            for (j, &(_, t_spike)) in races.iter().enumerate() {
-                let label = LABELS.get(j).copied().unwrap_or("?");
-                let color = NEURON_COLORS.get(j).copied().unwrap_or(Color32::WHITE);
-                ui.label(RichText::new(label).strong().color(color));
-                ui.label(format!("{:.3}", q.get(j).copied().unwrap_or(0.0)));
-                if t_spike.is_finite() {
-                    let bits =
-                        analytic_latency_ideal(q.get(j).copied().unwrap_or(1.0), LAMBDA) / LAMBDA;
-                    ui.label(format!("{:.1} ms   ({bits:.2} bits)", t_spike * 1000.0));
-                } else {
-                    ui.label(RichText::new("never (inf)").italics());
-                }
-                let mut tag = String::new();
-                if Some(j) == decoded {
-                    tag.push_str("fires first");
-                }
-                if j == emitted {
-                    if !tag.is_empty() {
-                        tag.push_str(" · ");
-                    }
-                    tag.push_str("actual");
-                }
-                ui.label(RichText::new(tag).color(Color32::from_rgb(80, 210, 130)));
-                ui.end_row();
-            }
+            ui.label(RichText::new(text).size(15.0).strong().color(color));
         });
+}
+
+/// Horizontal "time-to-fire" bars: bar length = first-spike latency (= surprise). The
+/// shortest (first to fire) is the guess; the actual emitted symbol's row is highlighted.
+fn latency_bars(
+    ui: &mut egui::Ui,
+    q: &[f64],
+    races: &[(f64, f64)],
+    decoded: Option<usize>,
+    emitted: usize,
+) {
+    let n = races.len();
+    let row_h = 28.0_f32;
+    let width = ui.available_width().min(680.0);
+    let (rect, _resp) =
+        ui.allocate_exact_size(egui::vec2(width, n as f32 * row_h), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    let max_t = races
+        .iter()
+        .map(|&(_, t)| t)
+        .filter(|t| t.is_finite())
+        .fold(0.0_f64, f64::max)
+        .max(1e-3);
+    let label_w = 92.0_f32;
+    let info_w = 196.0_f32;
+    let bar_x0 = rect.left() + label_w;
+    let bar_max = (rect.width() - label_w - info_w).max(20.0);
+    let info_x = bar_x0 + bar_max + 8.0;
+    for (j, &(_, t_spike)) in races.iter().enumerate() {
+        let y = rect.top() + j as f32 * row_h;
+        let cy = y + row_h * 0.5;
+        let color = NEURON_COLORS.get(j).copied().unwrap_or(Color32::WHITE);
+        let label = LABELS.get(j).copied().unwrap_or("?");
+        let qi = q.get(j).copied().unwrap_or(0.0);
+
+        // highlight the row of the symbol that was actually emitted
+        if j == emitted {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(rect.left(), y + 1.0),
+                    egui::vec2(rect.width(), row_h - 2.0),
+                ),
+                3.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 26),
+            );
+        }
+        painter.text(
+            egui::pos2(rect.left() + 2.0, cy),
+            egui::Align2::LEFT_CENTER,
+            format!("{label}  q={qi:.2}"),
+            egui::FontId::monospace(13.0),
+            color,
+        );
+        let (frac, info) = if t_spike.is_finite() {
+            let bits = -qi.clamp(1e-4, 0.999).log2();
+            (
+                ((t_spike / max_t) as f32).clamp(0.03, 1.0),
+                format!("{:.1} ms = {bits:.2} bits", t_spike * 1000.0),
+            )
+        } else {
+            (1.0, "never · inf bits".to_owned())
+        };
+        let bar_color = if t_spike.is_finite() {
+            color
+        } else {
+            color.gamma_multiply(0.4)
+        };
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(bar_x0, y + 5.0),
+                egui::vec2(bar_max * frac, row_h - 10.0),
+            ),
+            3.0,
+            bar_color,
+        );
+        let mut info = info;
+        if Some(j) == decoded {
+            info.push_str("   1st");
+        }
+        if j == emitted {
+            info.push_str(" · ACTUAL");
+        }
+        painter.text(
+            egui::pos2(info_x, cy),
+            egui::Align2::LEFT_CENTER,
+            info,
+            egui::FontId::monospace(12.0),
+            Color32::from_gray(215),
+        );
+    }
 }
 
 /// The right-panel inspector: run controls + live stats.

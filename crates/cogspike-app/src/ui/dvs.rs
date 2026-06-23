@@ -46,8 +46,10 @@ impl Default for DvsState {
 pub fn dvs_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     if app.dvs.running {
         // Step by real elapsed time (not per repaint) at ~14 FPS, so mouse movement does
-        // not speed up the camera. When sensory input is cut, run the open-loop dream.
-        let dt = f64::from(ui.ctx().input(|i| i.stable_dt)).clamp(0.0, 0.1);
+        // not speed up the camera. Use `unstable_dt` (TRUE time since last frame): in
+        // reactive repaint mode `stable_dt` is locked to the refresh interval, so extra
+        // mouse-driven repaints would over-count. When input is cut, run the open-loop dream.
+        let dt = f64::from(ui.ctx().input(|i| i.unstable_dt)).clamp(0.0, 0.1);
         app.dvs.step_acc += dt;
         let frame_dt = 0.07;
         let mut budget = 0;
