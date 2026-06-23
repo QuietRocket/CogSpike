@@ -205,3 +205,44 @@ time** (`input.stable_dt`, clamped): gym/spikes scale steps by `dt`, the event c
 
 **Re-verify.** In-browser: Run any live view and wiggle the mouse — the sim speed no longer
 changes.
+
+> Update: the spike + event views were later moved off `stable_dt` (which is **pinned to the
+> refresh interval in reactive repaint mode**, so mouse-driven repaints still over-counted) onto
+> `input.unstable_dt` (TRUE elapsed time). The gym uses continuous `request_repaint()`, which
+> masked the bug there.
+
+---
+
+## Spike-view pacing redesign (user-reported "too fast to follow") · VERIFIED (logic) / live-served
+
+**Claim.** The spike view advanced the *background learner* (~2500 symbols/s) and rendered the
+banner/bars/voltage race for the **latest** of those symbols every frame, so the display churned
+thousands of times a second and was unreadable. Fixed by **decoupling display from learning**:
+
+- The learner still runs fast in the background (`learn_rate` symbols/s, default 250, via a
+  fractional `step_acc` accumulator + `unstable_dt`), so it keeps converging.
+- The display **latches one sampled symbol** (`show_q/show_emitted/show_decoded`) and **holds it
+  `hold_secs`** (default 2.2 s). During the first `race_secs = min(hold/2, 1.1)` s the spike race is
+  **replayed in slow motion**: a model-time cursor `(phase_t/race)·span_s` sweeps; ramps draw up to
+  it, each dot/bar reveals only once the cursor passes that neuron's spike time (firing order), and
+  the banner stays "racing…" until the first spike, then flips to MATCHED/SURPRISED. Pause / Step
+  snap to a full static reveal.
+
+**Adversarial review fixes (3-lens workflow, 6 confirmed).**
+1. *Step while running* latched a symbol that the same-frame auto-advance (the inspector renders
+   before the central view) immediately stomped → Step now also sets `running = false`.
+2. *Cursor never reached slow spikes*: the old 80 ms window clamp was below post-convergence loser
+   latencies (~95 ms), so slow dots never crossed and the plot x-axis jumped on reveal. Now a single
+   `span_s = max_finite.clamp(0.020, 0.30)` drives the cursor, the bars' denominator **and** the
+   locked plot x-axis (`include_x`). `drive_and_spike` also clamps `q` to `[Q_CLIP_LO, Q_CLIP_HI]`,
+   so every latency obeys the clip-enforced ≤ 0.266 s bound and can't exceed the span ceiling.
+3. *Hold overshoot* (~1.5 % short holds) → re-latch now carries the remainder.
+4. *Stale "~1 s" caption* at slider extremes → caption is now dynamic (`~{race:.1} s`).
+   (One low finding — banner reveals fast for very confident symbols — kept: the reveal is
+   deliberately synced to the first dot crossing θ; desyncing it would be less honest.)
+
+**Re-verify.** `./check.sh` green (native + wasm32 + fmt + clippy `-D warnings` + tests +
+doctests + trunk build). In-browser (Spike latency mode, hard-reload): the banner + bars hold
+still and are readable; you watch one race replay in slow motion (dots cross in firing order, the
+"now" line sweeps), then the result holds ~2 s; the "seconds per symbol" and "background learning"
+sliders tune tempo independently; wiggling the mouse does not change the rate.
