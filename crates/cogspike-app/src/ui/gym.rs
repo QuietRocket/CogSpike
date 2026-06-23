@@ -8,7 +8,9 @@
 
 use std::collections::VecDeque;
 
-use cog_spike::coder::{self, LABELS, MAX_SURPRISAL_BITS, entropy_bits, entropy_rate, one_hot};
+use cog_spike::coder::{
+    self, LABELS, MAX_SURPRISAL_BITS, Q_CLIP_HI, Q_CLIP_LO, entropy_bits, entropy_rate, one_hot,
+};
 use cog_spike::gym::scenario::{self, Scenario};
 use cog_spike::gym::{Agent as _, DeltaAgent, OnlineRover};
 use cog_spike::substrate::{Parity, Substrate as _};
@@ -49,6 +51,15 @@ pub struct GymState {
     flip_marks: Vec<f64>,
     /// Whether the last flip put the world into its memoryless (s = 0) regime.
     flipped: bool,
+    /// A twin agent with `eta0 = 0` (never learns) -- the control baseline. Run on the
+    /// same stream, it stays at `log2(N) = 2` bits, so the gap to the learner controls
+    /// for source difficulty (the learner's gain isn't luck).
+    frozen: DeltaAgent,
+    frozen_window: VecDeque<f64>,
+    frozen_sum: f64,
+    frozen_curve: Vec<[f64; 2]>,
+    /// Cumulative bits the learner has saved over the frozen twin (the odometer).
+    bits_saved: f64,
 }
 
 impl Default for GymState {
@@ -77,6 +88,15 @@ impl GymState {
             inst_ema: (scenario::N as f64).log2(),
             flip_marks: Vec::new(),
             flipped: false,
+            frozen: {
+                let mut a = DeltaAgent::paper(scenario::N);
+                a.eta0 = 0.0; // never learns
+                a
+            },
+            frozen_window: VecDeque::new(),
+            frozen_sum: 0.0,
+            frozen_curve: Vec::new(),
+            bits_saved: 0.0,
         }
     }
 
@@ -134,6 +154,26 @@ impl GymState {
         // 4000-symbol mean which only crawls.
         self.inst_ema += 0.05 * (step.bits - self.inst_ema);
 
+        // Frozen twin: same context, never learns. It scores the same emitted symbol so
+        // the running gap is a like-for-like control. (It does NOT call `learn`.)
+        let frozen_q = self
+            .frozen
+            .act(&obs)
+            .q
+            .get(step.emitted)
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(Q_CLIP_LO, Q_CLIP_HI);
+        let frozen_bits = -frozen_q.log2();
+        self.bits_saved += frozen_bits - step.bits;
+        self.frozen_window.push_back(frozen_bits);
+        self.frozen_sum += frozen_bits;
+        if self.frozen_window.len() > WINDOW {
+            if let Some(old) = self.frozen_window.pop_front() {
+                self.frozen_sum -= old;
+            }
+        }
+
         self.bits_window.push_back(step.bits);
         self.bits_sum += step.bits;
         if self.bits_window.len() > WINDOW {
@@ -160,11 +200,15 @@ impl GymState {
         let x = self.step_count as f64;
         self.bits_curve.push([x, self.windowed_bits()]);
         self.acc_curve.push([x, self.windowed_acc()]);
+        self.frozen_curve.push([x, self.windowed_frozen_bits()]);
         if self.bits_curve.len() > MAX_CURVE {
             self.bits_curve.remove(0);
         }
         if self.acc_curve.len() > MAX_CURVE {
             self.acc_curve.remove(0);
+        }
+        if self.frozen_curve.len() > MAX_CURVE {
+            self.frozen_curve.remove(0);
         }
     }
 
@@ -181,6 +225,14 @@ impl GymState {
             f64::NAN
         } else {
             self.acc_sum as f64 / self.acc_window.len() as f64
+        }
+    }
+
+    fn windowed_frozen_bits(&self) -> f64 {
+        if self.frozen_window.is_empty() {
+            f64::NAN
+        } else {
+            self.frozen_sum / self.frozen_window.len() as f64
         }
     }
 
@@ -246,6 +298,7 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
     let ceiling = app.gym.bayes_ceiling();
     let bits_curve = app.gym.bits_curve.clone();
     let acc_curve = app.gym.acc_curve.clone();
+    let frozen_curve = app.gym.frozen_curve.clone();
     let flip_marks = app.gym.flip_marks.clone();
 
     // The Boredom Meter: instantaneous surprise vs the entropy-rate floor, fenced by
@@ -259,7 +312,11 @@ pub fn gym_view(app: &mut TemplateApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
         .legend(Legend::default())
         .show(ui, |pui| {
             pui.line(
-                Line::new("bits/symbol", PlotPoints::from(bits_curve))
+                Line::new("frozen (no learning)", PlotPoints::from(frozen_curve))
+                    .color(egui::Color32::from_rgb(150, 150, 160)),
+            );
+            pui.line(
+                Line::new("learning agent", PlotPoints::from(bits_curve))
                     .color(egui::Color32::from_rgb(90, 170, 255)),
             );
             pui.hline(
@@ -398,6 +455,11 @@ pub fn gym_inspector(app: &mut TemplateApp, ui: &mut egui::Ui) {
             ui,
             "η (learning rate)",
             format!("{:.5}", app.gym.agent.eta()),
+        );
+        stat(
+            ui,
+            "bits saved vs frozen",
+            format!("{:.1} kb", app.gym.bits_saved / 1000.0),
         );
     });
 
@@ -646,4 +708,35 @@ fn surprisal_color(v: f64) -> egui::Color32 {
     let t = (bits / 2.0).clamp(0.0, 1.0) as f32; // 0 = mastered, 1 = surprising
     let lerp = |a: f32, b: f32| (a + (b - a) * t) as u8;
     egui::Color32::from_rgb(lerp(50.0, 210.0), lerp(110.0, 70.0), lerp(210.0, 55.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn learner_beats_frozen_baseline() {
+        // D2 control: a frozen (eta0 = 0) twin runs on the SAME stream as the learner.
+        let mut gym = GymState::new(Scenario::MarkovRover, 7);
+        gym.advance(60_000);
+
+        // The frozen twin never learns -> its surprise sits at exactly log2(N) = 2 bits.
+        assert!(
+            (gym.windowed_frozen_bits() - 2.0).abs() < 1e-9,
+            "frozen baseline should be 2 bits, got {}",
+            gym.windowed_frozen_bits()
+        );
+        // The learner compresses well below the 2-bit baseline...
+        assert!(
+            gym.windowed_bits() < 1.5,
+            "learner should beat the baseline, got {}",
+            gym.windowed_bits()
+        );
+        // ...so it banks a large, positive bit-saving over the same stream.
+        assert!(
+            gym.bits_saved > 5_000.0,
+            "learner should save many bits vs frozen, got {}",
+            gym.bits_saved
+        );
+    }
 }
